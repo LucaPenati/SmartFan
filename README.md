@@ -9,15 +9,17 @@ Progetto che utilizza un Arduino UNO R3 come controllore di una piccola ventola 
 * Sensore ad ultrasuoni
 * Sensore DHT11
 * Sensore capacitivo di umidità v1.2
-* L293D H-Bridge Motor Driver
+* Pulsante
+* L293D Motor Driver
 * Motore a corrente continua da 3-6V
 * ULN2003 Stepper Motor Driver
 * Motore Stepper 28BYJ-48 da 5V DC
 * Alimentatore da 6V
+* Modulo di alimentazione per Breadboard (opzionale)
 * Power Bank da 5V 8000 mAh (opzionale)
 
 ## Funzionamento
-Quando alimentato, il ventilatore come prima cosa verifica che sia puntato verso qualcosa o qualcuno non più distante di mezzo metro, usanto il sensore ad ultrasuoni, quindi:
+Quando alimentato, il ventilatore misura la temperatura dell'aria e verifica che il suo stato sia "acceso" (stabilito dalla pressione di un pulsante), quindi, se la temperatura è superiore ad un valore soglia, ed è acceso, come prima cosa verifica che sia puntato verso qualcosa o qualcuno non più distante di mezzo metro, usanto il sensore ad ultrasuoni, e dopo aver valutato:
 
 ### Se è puntato verso un soggetto
 1. Memorizza la distanza rilevata.
@@ -36,7 +38,7 @@ Quando alimentato, il ventilatore come prima cosa verifica che sia puntato verso
 Se durante la normale gestione della ventola perde il contatto con il soggetto puntato, perché si è mosso o per errore del sensore, passa al suo comportmento "di ricerca" per cercare di riposizionarsi meglio.
 
 ## Considerazioni
-Come possibili aggiunte sto valutando di aggiungere un pulsante di accensione/spegnimento per il ventilatore, per renderlo più realistico, e inoltre si potrebbero inserire dei valori di soglia minima per accendere la ventola solo qualora la temperatura dell'aria sia sufficientemente calda, e per verificare che la persona che stia usando il ventilatore stia sudando. Qualora il ventilatore sia acceso, ma le misurazioni cadano al di sotto dei valori storia, invece, si spegnerebbe da solo.
+Come possibile aggiunta sto valutando di aggiungere una funzione di accensione automatica se il ventilatore rivela che la persona stia sudando.
 
 ## Licenza
 Questo progetto è rilasciato sotto licenza **GNU General Public License v3.0 **.
