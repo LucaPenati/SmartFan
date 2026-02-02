@@ -19,19 +19,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <DHT11.h> //Libreria per il lettore di temperatura e umidità di Dhruba Saha su licenza MIT https://github.com/dhrubasaha08/DHT11/blob/main/
 #include <Stepper.h>  //Libreria per il controllo del motore stepper
 
-const byte buttonPin = 12;  //GPIO collegato al pulsante di accensione/spegnimento del ventilatore
+//Questa funzione fa ripartire l'esecuzione dall'istruzione 0, essenzialmente resettando il programma al suo stato iniziale
+void(* reset)(void) = 0;
+
+const byte buttonPin = 2;  //GPIO collegato al pulsante di accensione/spegnimento del ventilatore
 bool acceso = false;        //Variabile che contiene lo stato acceso/spento del ventilatore
 
 const byte moistPin = A0;   //Il pin di Analog Input che riceve i dati del sensore per l'umidità della pelle
-const short minMoist = 200; //Valore ricavato dal sensore di umità della pelle quando è asciutto (da tarare sullo specifico sensore)
-const short maxMoist = 800; //Valore ricavato dal sensore di umità della pelle quando è immerso in acqua (da tarare sullo specifico sensore)
+const short minMoist = 490; //Valore ricavato dal sensore di umità della pelle quando è asciutto (da tarare sullo specifico sensore)
+const short maxMoist = 190; //Valore ricavato dal sensore di umità della pelle quando è immerso in acqua (da tarare sullo specifico sensore)
+//Braccio bagnato: tra 236 e 270
+//Braccio asciutto: attorno a 400-410
 
 const short stepsPerRevolution = 2048;  //Numero di step che compongono una rotazione completa del motore stepper
 Stepper myStepper(stepsPerRevolution, 8, 10, 9, 11); //Inizializza l'oggetto di controllo del motore stepper con i GPIO da 8 a 11 per i segnali
 //Sul modulo di controllo del motore stepper il pin 8 è connesso a 1N4, 9 a 1N3, 10 a 1N2, e 11 a 1N1
 
-const byte trigPin = 3;  //Output per inviare il segnale di trigger al sensore ad ultrasuoni
-const byte echoPin = 2;  //Input per ricevere la distanza rilevata
+const byte trigPin = 4;  //Output per inviare il segnale di trigger al sensore ad ultrasuoni
+const byte echoPin = 3;  //Input per ricevere la distanza rilevata
 const short maxDist = 50;  //Massima distanza in cm che considera per essere puntata verso una persona
 short distanza = maxDist/2;  //Distanza in cm misurata dal sensore ad ultrasuoni. E' inizializzata in tal modo per il caso in cui il ventilatore non stia puntando un soggetto all'accensione
 byte contaDistanzaErrata = 0;  //Contatore per il numero di volte che la distanza è stata rilevata come errata o oltre la maxDist
@@ -43,7 +48,7 @@ const byte fanSensoOrario = 7;      //Quando uno dei due è HIGH e l'altro è LO
 const short minTemp = 20;   //Temperatura minima sopra la quale il ventilatore si accende (arbitraria)
 const short maxTemp = 50;   //Temperatura massima misurabile dal sensore (dipende dal sensore, in questo caso DHT11)
 //Crea un'istanza della classe DHT11 per gestire il sensore di temperatura e umidità dell'aria
-DHT11 dht11(4);   //Definisce il GPIO digitale 4 come input dal sensore
+DHT11 dht11(12);   //Definisce il GPIO digitale 4 come input dal sensore
 
 
 void setup(){
@@ -62,76 +67,76 @@ void setup(){
 
 //Main loop
 void loop(){
-  int temperatura, umidita;  //Variabili che saranno usate dal sensore DHT11
-  bool tempUmiOK = dht11.readTemperatureHumidity(temperatura, umidita);; //Legge la temperatura e umidità dal sensore DHT11.
-  
   //Le funzioni del ventilatore saranno eseguite solo se lo stato del sistema è "acceso", e la temperatura è stata letta correttamente
   //ed è superiore alla soglia minima. Se il sensore non è in grado di leggere la temperatura, viene considerato solo se l'utente
   //abbia acceso o meno il ventilatore.
-  if(acceso && ((tempUmiOK && temperatura >= minTemp) || !tempUmiOK)){
-    byte lettureCorrette = 0; //Conta quanti sensori hanno effettuato una lettura corretta, servirà a fare la media pesata per la pwm
-    byte pwmModTemp = 0;    //Variabile usata per calcolare la PWM per la ventola, proporzionale alla temperatura
-    byte pwmModUmi = 0;     //Variabile usata per calcolare la PWM per la ventola, proporzionale all'umidità dell'aria
+  if(acceso){
+    
+    int temperatura, umidita;  //Variabili che saranno usate dal sensore DHT11
+    bool tempUmiOK = dht11.readTemperatureHumidity(temperatura, umidita);; //Legge la temperatura e umidità dal sensore DHT11.
 
-    if(tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato all'umidità dell'aria
-      pwmModUmi = map(umidita, 0, 100, 100, 255);
-      lettureCorrette++;
-    }
+    if((tempUmiOK && temperatura >= minTemp) || !tempUmiOK){
 
-    if(tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato alla temperatura
-      pwmModTemp = map(temperatura, 0, maxTemp, 100, 255);
-      lettureCorrette++;
-    }
+      byte lettureCorrette = 0; //Conta quanti sensori hanno effettuato una lettura corretta, servirà a fare la media pesata per la pwm
+      byte pwmModTemp = 0;    //Variabile usata per calcolare la PWM per la ventola, proporzionale alla temperatura
+      byte pwmModUmi = 0;     //Variabile usata per calcolare la PWM per la ventola, proporzionale all'umidità dell'aria
 
-    //Chiama le istruzioni necessarie per inviare un impulso ultrasonico
-    short durata = impulso();
-    //Calcolo della distanza dimezzando il tempo passato dall'invio dell'impulso ultrasonico e moltiplicandolo per la velocità del suono in cm/microsecondi
-    short dist = (durata*.0343)/2;
-    if(dist <= maxDist && dist > 0){  //Controllo della validità della misurazione
-      distanza = dist;
-      contaDistanzaErrata = 0;
-    } else {
-      contaDistanzaErrata++;
-    }
-
-    byte pwmModDist = 0;  //Variabile usata per calcolare la PWM per la ventola, proporzionale alla distanza
-
-    //Se ci sono stati troppi rilevamenti errati consecutivi della distanza, la ventola prova a riposizionarsi
-    if(contaDistanzaErrata > 3){
-      //Funzione per riposizionare la ventola col motore stepper
-      distanza = riposizionaVentola();
-      if(distanza < 0) {    //Gestione del caso non sia riuscito a individuare un soggetto da puntare
-        pwmModDist = 0;     //Non considera la distanza per il calcolo della PWM. Questo permette al ventilatore di funzionare anche se il sensore ad ultrasuoni sia rotto.
+      if(tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato all'umidità dell'aria
+        pwmModUmi = map(umidita, 0, 100, 100, 255);
+        lettureCorrette++;
       }
-      contaDistanzaErrata = 0;
-    } else {
-      lettureCorrette++;
-      pwmModDist = map(distanza, 0, maxDist, 100, 255);
+
+      if(tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato alla temperatura
+        pwmModTemp = map(temperatura, 0, maxTemp, 100, 255);
+        lettureCorrette++;
+      }
+
+      //Chiama le istruzioni necessarie per inviare un impulso ultrasonico
+      short durata = impulso();
+      //Calcolo della distanza dimezzando il tempo passato dall'invio dell'impulso ultrasonico e moltiplicandolo per la velocità del suono in cm/microsecondi
+      short dist = (durata*.0343)/2;
+      if(dist <= maxDist && dist > 0){  //Controllo della validità della misurazione
+        distanza = dist;
+        contaDistanzaErrata = 0;
+      } else {
+        contaDistanzaErrata++;
+      }
+
+      byte pwmModDist = 0;  //Variabile usata per calcolare la PWM per la ventola, proporzionale alla distanza
+
+      //Se ci sono stati troppi rilevamenti errati consecutivi della distanza, la ventola prova a riposizionarsi
+      if(contaDistanzaErrata > 3){
+        //Funzione per riposizionare la ventola col motore stepper
+        distanza = riposizionaVentola();
+        if(distanza < 0) {    //Gestione del caso non sia riuscito a individuare un soggetto da puntare
+          pwmModDist = 0;     //Non considera la distanza per il calcolo della PWM. Questo permette al ventilatore di funzionare anche se il sensore ad ultrasuoni sia rotto.
+        }
+        contaDistanzaErrata = 0;
+      } else {
+        lettureCorrette++;
+        pwmModDist = map(distanza, 0, maxDist, 100, 255);
+      }
+
+      byte pwmModMoist = 0;   //Variabile usata per calcolare la PWM per la ventola, proporzionale all'umidità della pelle
+      short valore = analogRead(A0);
+      if(valore >= minMoist && valore <= maxMoist){
+        pwmModMoist = map(temperatura, minMoist, maxMoist, 100, 255);
+        lettureCorrette++;
+      }
+
+      byte pwm = 0;   //Nel caso le letture dei sensori siano andate tutte male, la ventola non viene fatta girare
+
+      if(lettureCorrette > 0){  //Effettua la media pesata (pesi da sistemare) dei risultati dei vari sensori per calcolare il valore adeguato per la PWM
+        pwm = (pwmModDist + pwmModTemp + pwmModUmi + pwmModMoist)/lettureCorrette;
+      }
+
+      digitalWrite(fanSensoAntiorario, LOW);  //Quando è HIGH e l'altra è LOW la ventola gira in senso antiorario
+      digitalWrite(fanSensoOrario, HIGH);     //Quando è HIGH e l'altra è LOW la ventola gira in senso orario
+      analogWrite(pwmPin, pwm);
     }
-
-    byte pwmModMoist = 0;   //Variabile usata per calcolare la PWM per la ventola, proporzionale all'umidità della pelle
-    short valore = analogRead(A0);
-    if(valore >= minMoist && valore <= maxMoist){
-      pwmModMoist = map(temperatura, minMoist, maxMoist, 100, 255);
-      lettureCorrette++;
-    }
-
-    byte pwm = 0;   //Nel caso le letture dei sensori siano andate tutte male, la ventola non viene fatta girare
-
-    if(lettureCorrette > 0){  //Effettua la media pesata (pesi da sistemare) dei risultati dei vari sensori per calcolare il valore adeguato per la PWM
-      pwm = (pwmModDist + pwmModTemp + pwmModUmi + pwmModMoist)/lettureCorrette;
-    }
-
-    digitalWrite(fanSensoAntiorario, LOW);  //Quando è HIGH e l'altra è LOW la ventola gira in senso antiorario
-    digitalWrite(fanSensoOrario, HIGH);     //Quando è HIGH e l'altra è LOW la ventola gira in senso orario
-    analogWrite(pwmPin, pwm);
   }
-  delay(1000); //Pausa per un secondo
+  delay(50); //Pausa per 50 millisecondi
 }
-
-
-//Questa funzione fa ripartire l'esecuzione dall'istruzione 0, essenzialmente resettando il programma al suo stato iniziale
-void(* reset)(void) = 0;
 
 
 //Funzione chiamata dall'Interrupt legato al bottone 
@@ -181,5 +186,6 @@ short riposizionaVentola(){
   //Le seguenti istruzioni riportano la ventola nella posizione iniziale
   i = i/2;
   myStepper.step(i*20*direzione);
+  delay(2000);
   return -1;
 }
