@@ -67,6 +67,8 @@ void setup(){
 
 //Main loop
 void loop(){
+  byte pwm = 0; //Valore per il controllo della velocità della ventola tramite PWM
+
   //Le funzioni del ventilatore saranno eseguite solo se lo stato del sistema è "acceso", e la temperatura è stata letta correttamente
   //ed è superiore alla soglia minima. Se il sensore non è in grado di leggere la temperatura, viene considerato solo se l'utente
   //abbia acceso o meno il ventilatore.
@@ -76,18 +78,25 @@ void loop(){
     bool tempUmiOK = dht11.readTemperatureHumidity(temperatura, umidita);; //Legge la temperatura e umidità dal sensore DHT11.
 
     if((tempUmiOK && temperatura >= minTemp) || !tempUmiOK){
-
+      //Pesi per il calcolo tramite media pesata del valore usato per controllare la velocità della ventola via PWM
+      byte pesoDist = 0;
+      byte pesoTemp = 0;
+      byte pesoUmi = 0;
+      byte pesoMoist = 0;
+    
       byte lettureCorrette = 0; //Conta quanti sensori hanno effettuato una lettura corretta, servirà a fare la media pesata per la pwm
       byte pwmModTemp = 0;    //Variabile usata per calcolare la PWM per la ventola, proporzionale alla temperatura
       byte pwmModUmi = 0;     //Variabile usata per calcolare la PWM per la ventola, proporzionale all'umidità dell'aria
 
       if(tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato all'umidità dell'aria
-        pwmModUmi = map(umidita, 0, 100, 100, 255);
+        pwmModUmi = map(umidita, 0, 100, 130, 255);
+        pesoUmi = 3;
         lettureCorrette++;
       }
 
       if(tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato alla temperatura
-        pwmModTemp = map(temperatura, 0, maxTemp, 100, 255);
+        pwmModTemp = map(temperatura, 0, maxTemp, 130, 255);
+        pesoTemp = 3;
         lettureCorrette++;
       }
 
@@ -114,32 +123,58 @@ void loop(){
         contaDistanzaErrata = 0;
       } else {
         lettureCorrette++;
-        pwmModDist = map(distanza, 0, maxDist, 100, 255);
+        pesoDist = 4;
+        pwmModDist = map(distanza, 0, maxDist, 130, 255);
       }
 
       byte pwmModMoist = 0;   //Variabile usata per calcolare la PWM per la ventola, proporzionale all'umidità della pelle
       short valore = analogRead(A0);
       if(valore >= minMoist && valore <= maxMoist){
-        pwmModMoist = map(temperatura, minMoist, maxMoist, 100, 255);
+        pwmModMoist = map(valore, minMoist, maxMoist, 130, 255);
+        pesoMoist = 6;
         lettureCorrette++;
       }
 
-      byte pwm = 0;   //Nel caso le letture dei sensori siano andate tutte male, la ventola non viene fatta girare
-
-      if(lettureCorrette > 0){  //Effettua la media pesata (pesi da sistemare) dei risultati dei vari sensori per calcolare il valore adeguato per la PWM
-        pwm = (pwmModDist + pwmModTemp + pwmModUmi + pwmModMoist)/lettureCorrette;
+      //Banale e semplicistica gestione dei pesi in caso di malfunzionamento dei sensori
+      if((pesoDist + pesoTemp + pesoUmi + pesoMoist) > (lettureCorrette*4)){
+        if(pesoDist>0){
+          pesoDist--;
+          pesoMoist--;
+        } else {
+          pesoMoist = pesoMoist - 2;
+        }
+      } else if ((pesoDist + pesoTemp + pesoUmi + pesoMoist) < (lettureCorrette*4)){
+        if(pesoDist>0){
+          pesoDist = pesoDist + 2;
+        } else {
+          pesoTemp++;
+          pesoUmi++;
+        }
       }
 
-      digitalWrite(fanSensoAntiorario, LOW);  //Quando è HIGH e l'altra è LOW la ventola gira in senso antiorario
-      digitalWrite(fanSensoOrario, HIGH);     //Quando è HIGH e l'altra è LOW la ventola gira in senso orario
-      analogWrite(pwmPin, pwm);
+      if(lettureCorrette > 0){  //Effettua la media pesata (pesi da sistemare) dei risultati dei vari sensori per calcolare il valore adeguato per la PWM
+        pwm = ((pesoDist*pwmModDist)/4 +
+              (pesoTemp*pwmModTemp)/4 +
+              (pesoUmi*pwmModUmi)/4 +
+              (pesoMoist*pwmModMoist)/4) / lettureCorrette;
+      }
+
+      //Nel caso il calcolo sopra sfori la soglia massima per un qualsiasi motivo imprevisto
+      if(pwm > 255){
+        pwm = 255;
+      }
     }
   }
+  digitalWrite(fanSensoAntiorario, LOW);  //Quando è HIGH e l'altra è LOW la ventola gira in senso antiorario
+  digitalWrite(fanSensoOrario, HIGH);     //Quando è HIGH e l'altra è LOW la ventola gira in senso orario
+  analogWrite(pwmPin, pwm);
+
   delay(50); //Pausa per 50 millisecondi
 }
 
 
-//Funzione chiamata dall'Interrupt legato al bottone 
+//Funzione chiamata dall'Interrupt legato al bottone
+//Se il sistema è spento, lo setta ad acceso, se è già acceso, invece, resetta il sistema, che reinizializza anche la variabile "acceso" a false.
 void gestioneBottone(){
   acceso = !acceso;
   if(!acceso){
