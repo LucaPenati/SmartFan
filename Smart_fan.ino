@@ -46,7 +46,7 @@ const byte fanSensoAntiorario = 6;  //Due GPIO per il controllo della direzione 
 const byte fanSensoOrario = 7;      //Quando uno dei due è HIGH e l'altro è LOW, la ventola gira nel senso indicato dal nome della variabile in HIGH
 
 const short minTemp = 20;   //Temperatura minima sopra la quale il ventilatore si accende (arbitraria)
-const short maxTemp = 50;   //Temperatura massima misurabile dal sensore (dipende dal sensore, in questo caso DHT11)
+const short maxTemp = 40;   //Temperatura massima considerata per stabire proporzionalmente la velocità della ventola
 //Crea un'istanza della classe DHT11 per gestire il sensore di temperatura e umidità dell'aria
 DHT11 dht11(12);   //Definisce il GPIO digitale 4 come input dal sensore
 
@@ -88,9 +88,13 @@ void loop(){
       byte pwmModTemp = 0;    //Variabile usata per calcolare la PWM per la ventola, proporzionale alla temperatura
       byte pwmModUmi = 0;     //Variabile usata per calcolare la PWM per la ventola, proporzionale all'umidità dell'aria
 
-      if(tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato all'umidità dell'aria
-        pwmModUmi = map(umidita, 0, 100, 130, 255);
-        pesoUmi = 3;
+      if(tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato alla temperatura
+        if(temperatura < maxTemp){
+          pwmModTemp = map(temperatura, 0, maxTemp, 130, 255);
+        } else {  //Se la temperatua è maggiore o uguale alla temperatura di soglia massima, il modificatore PWM è massimizzato
+          pwmModTemp = 255;
+        }
+        pesoTemp = 3;
         lettureCorrette++;
       }
 
