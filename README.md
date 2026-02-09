@@ -19,7 +19,7 @@ Progetto che utilizza un Arduino UNO R3 come controllore di una piccola ventola 
 * Power Bank da 5V 8000 mAh (opzionale)
 
 ## Funzionamento
-Quando alimentato, il ventilatore misura la temperatura dell'aria e verifica che il suo stato sia "acceso" (stabilito dalla pressione di un pulsante), quindi, se la temperatura è superiore ad un valore soglia, ed è acceso, come prima cosa verifica che sia puntato verso qualcosa o qualcuno non più distante di mezzo metro, usanto il sensore ad ultrasuoni, e dopo aver valutato:
+Quando alimentato, il ventilatore verifica che il suo stato sia "acceso" (stabilito dalla pressione di un pulsante), quindi, misura la temperatura dell'aria, e, se è superiore ad un valore soglia, come prima cosa verifica che sia puntato verso qualcosa o qualcuno non più distante di mezzo metro, usanto il sensore ad ultrasuoni, e dopo aver valutato:
 
 ### Se è puntato verso un soggetto
 1. Memorizza la distanza rilevata.
@@ -37,8 +37,5 @@ Quando alimentato, il ventilatore misura la temperatura dell'aria e verifica che
 ### Inoltre
 Se durante la normale gestione della ventola perde il contatto con il soggetto puntato, perché si è mosso o per errore del sensore, passa al suo comportmento "di ricerca" per cercare di riposizionarsi meglio.
 
-## Considerazioni
-Come possibile aggiunta sto valutando di aggiungere una funzione di accensione automatica se il ventilatore rivela che la persona stia sudando.
-
 ## Licenza
-Questo progetto è rilasciato sotto licenza **GNU General Public License v3.0 **.
+Questo progetto è rilasciato sotto licenza GNU General Public License v3.0
