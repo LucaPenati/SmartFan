@@ -19,10 +19,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <DHT11.h> //Libreria per il lettore di temperatura e umidità di Dhruba Saha su licenza MIT https://github.com/dhrubasaha08/DHT11/blob/main/
 #include <Stepper.h>  //Libreria per il controllo del motore stepper
 
-//Questa funzione fa ripartire l'esecuzione dall'istruzione 0, essenzialmente resettando il programma al suo stato iniziale
-void(* reset)(void) = 0;
-
-const byte buttonPin = 2;  //GPIO collegato al pulsante di accensione/spegnimento del ventilatore
+const byte resetPin = A2;   //GPIO utilizzato per inviare il segnale di reset per spegnere il ventilatore
+const byte buttonPin = 2;   //GPIO collegato al pulsante di accensione/spegnimento del ventilatore
 bool acceso = false;        //Variabile che contiene lo stato acceso/spento del ventilatore
 
 const byte moistPin = A0;   //Il pin di Analog Input che riceve i dati del sensore per l'umidità della pelle
@@ -46,12 +44,14 @@ const byte fanSensoAntiorario = 6;  //Due GPIO per il controllo della direzione 
 const byte fanSensoOrario = 7;      //Quando uno dei due è HIGH e l'altro è LOW, la ventola gira nel senso indicato dal nome della variabile in HIGH
 
 const short minTemp = 20;   //Temperatura minima sopra la quale il ventilatore si accende (arbitraria)
-const short maxTemp = 40;   //Temperatura massima considerata per stabire proporzionalmente la velocità della ventola
+const short maxTemp = 40;   //Temperatura massima considerata per stabilire proporzionalmente la velocità della ventola
 //Crea un'istanza della classe DHT11 per gestire il sensore di temperatura e umidità dell'aria
 DHT11 dht11(12);   //Definisce il GPIO digitale 4 come input dal sensore
 
 
 void setup(){
+  digitalWrite(resetPin, HIGH);   //Il pin A2 viene configurato per essere sempre HIGH in OUTPUT, perché viene usato nella ISR quando il bottone
+  pinMode(resetPin, OUTPUT);      //è premuto per inviare un segnale LOW al pin di RESET quando lo scopo è spegnere il ventilatore.
   pinMode(buttonPin, INPUT_PULLUP);
   //La pressione del pulsante attiva un interrupt, in questo modo in qualsiasi momento il pulsante venga premuto, il controllore risponde
   //agendo di conseguenza.
@@ -88,18 +88,18 @@ void loop(){
       byte pwmModTemp = 0;    //Variabile usata per calcolare la PWM per la ventola, proporzionale alla temperatura
       byte pwmModUmi = 0;     //Variabile usata per calcolare la PWM per la ventola, proporzionale all'umidità dell'aria
 
+      if(tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato all'umidità dell'aria
+        pwmModUmi = map(umidita, 0, 100, 130, 255);
+        pesoUmi = 3;
+        lettureCorrette++;
+      }
+
       if(tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato alla temperatura
         if(temperatura < maxTemp){
           pwmModTemp = map(temperatura, 0, maxTemp, 130, 255);
         } else {  //Se la temperatua è maggiore o uguale alla temperatura di soglia massima, il modificatore PWM è massimizzato
           pwmModTemp = 255;
         }
-        pesoTemp = 3;
-        lettureCorrette++;
-      }
-
-      if(tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato alla temperatura
-        pwmModTemp = map(temperatura, 0, maxTemp, 130, 255);
         pesoTemp = 3;
         lettureCorrette++;
       }
@@ -139,7 +139,7 @@ void loop(){
         lettureCorrette++;
       }
 
-      //Banale e semplicistica gestione dei pesi in caso di malfunzionamento dei sensori
+      //Banale e semplicistica gestione dei pesi in caso di malfunzionamento dei sensori, considerata in base ai pesi di default
       if((pesoDist + pesoTemp + pesoUmi + pesoMoist) > (lettureCorrette*4)){
         if(pesoDist>0){
           pesoDist--;
@@ -169,11 +169,12 @@ void loop(){
       }
     }
   }
+
   digitalWrite(fanSensoAntiorario, LOW);  //Quando è HIGH e l'altra è LOW la ventola gira in senso antiorario
   digitalWrite(fanSensoOrario, HIGH);     //Quando è HIGH e l'altra è LOW la ventola gira in senso orario
   analogWrite(pwmPin, pwm);
 
-  delay(50); //Pausa per 50 millisecondi
+  delay(1000); //Pausa per 50 millisecondi
 }
 
 
@@ -182,7 +183,7 @@ void loop(){
 void gestioneBottone(){
   acceso = !acceso;
   if(!acceso){
-    reset();
+    digitalWrite(resetPin, LOW);
   }
 }
 
