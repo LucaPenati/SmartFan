@@ -25,8 +25,9 @@ Quando alimentato, il ventilatore verifica che il suo stato sia "acceso" (stabil
 1. Memorizza la distanza rilevata.
 2. Raccoglie le letture dei sensori su temperatura e umidità dell'aria, e umidità della pelle del soggetto puntato.
 3. Controlla che le letture siano nei loro range accettabili, e fa in modo che non influenzino il calcolo seguente se non lo sono.
-4. Effettua una media pesata dei quattro fattori rilevati per ricavare un valore per la PWM che governa la velocità della ventola.
-5. Se durante la ripetizione di questo loop non rileva più la presenza di un soggetto puntato, passa al comportamento descritto di seguito.
+4. Effettua una media pesata dei quattro fattori rilevati per ricavare un valore desiderato per la PWM che governa la velocità della ventola.
+5. Il valore effettivamente usato per la PWM della ventola è ricavato tramite calcolo del PID considerando il valore memorizzato e quello appena trovato al punto precedente.
+6. Se durante la ripetizione di questo loop non rileva più la presenza di un soggetto puntato, passa al comportamento descritto di seguito.
 
 ### Se non è puntato verso un soggetto
 1. Effettua una breve rotazione parallela al piano d'appoggio, di pochi gradi in senso orario.
