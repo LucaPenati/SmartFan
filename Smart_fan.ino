@@ -23,6 +23,11 @@ const byte resetPin = A2;   //GPIO utilizzato per inviare il segnale di reset pe
 const byte buttonPin = 2;   //GPIO collegato al pulsante di accensione/spegnimento del ventilatore
 bool acceso = false;        //Variabile che contiene lo stato acceso/spento del ventilatore
 
+byte pwm = 0;   //Variabile che memorizza l'ultimo valore di controllo tramite PWM usato per la velocità della ventola
+int storicoErrori[5] = {0, 0, 0, 0, 0};  //Memorizza gli ultimi 5 "errori", la distanza tra il valore di PWM voluto e quello effettivo
+byte index = 0;         //Indice che sarà usato per scrivere l'array sopra
+bool firstIter = true;  //Usato per stabilire quando lo storicoErrori sta venendo riempito per la prima volta, in modo da ignorare gli zeri di dichiarazione (differenziandoli da uno 0 dovuti allo stato "a regime")
+
 const byte moistPin = A0;   //Il pin di Analog Input che riceve i dati del sensore per l'umidità della pelle
 const short minMoist = 490; //Valore ricavato dal sensore di umità della pelle quando è asciutto (da tarare sullo specifico sensore)
 const short maxMoist = 190; //Valore ricavato dal sensore di umità della pelle quando è immerso in acqua (da tarare sullo specifico sensore)
@@ -67,7 +72,7 @@ void setup(){
 
 //Main loop
 void loop(){
-  byte pwm = 0; //Valore per il controllo della velocità della ventola tramite PWM
+  byte newPwm = 0; //Valore per il controllo della velocità della ventola tramite PWM
 
   //Le funzioni del ventilatore saranno eseguite solo se lo stato del sistema è "acceso", e la temperatura è stata letta correttamente
   //ed è superiore alla soglia minima. Se il sensore non è in grado di leggere la temperatura, viene considerato solo se l'utente
@@ -76,8 +81,9 @@ void loop(){
     
     int temperatura, umidita;  //Variabili che saranno usate dal sensore DHT11
     bool tempUmiOK = dht11.readTemperatureHumidity(temperatura, umidita);; //Legge la temperatura e umidità dal sensore DHT11.
+    //Nota: restituisce false se la lettura è andata bene.
 
-    if((tempUmiOK && temperatura >= minTemp) || !tempUmiOK){
+    if((!tempUmiOK && temperatura >= minTemp) || tempUmiOK){
       //Pesi per il calcolo tramite media pesata del valore usato per controllare la velocità della ventola via PWM
       byte pesoDist = 0;
       byte pesoTemp = 0;
@@ -88,13 +94,13 @@ void loop(){
       byte pwmModTemp = 0;    //Variabile usata per calcolare la PWM per la ventola, proporzionale alla temperatura
       byte pwmModUmi = 0;     //Variabile usata per calcolare la PWM per la ventola, proporzionale all'umidità dell'aria
 
-      if(tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato all'umidità dell'aria
+      if(!tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato all'umidità dell'aria
         pwmModUmi = map(umidita, 0, 100, 130, 255);
         pesoUmi = 3;
         lettureCorrette++;
       }
 
-      if(tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato alla temperatura
+      if(!tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato alla temperatura
         if(temperatura < maxTemp){
           pwmModTemp = map(temperatura, 0, maxTemp, 130, 255);
         } else {  //Se la temperatua è maggiore o uguale alla temperatura di soglia massima, il modificatore PWM è massimizzato
@@ -110,9 +116,11 @@ void loop(){
       short dist = (durata*.0343)/2;
       if(dist <= maxDist && dist > 0){  //Controllo della validità della misurazione
         distanza = dist;
+        pesoDist = 4;
         contaDistanzaErrata = 0;
       } else {
         contaDistanzaErrata++;
+        pesoDist = 4;
       }
 
       byte pwmModDist = 0;  //Variabile usata per calcolare la PWM per la ventola, proporzionale alla distanza
@@ -123,6 +131,7 @@ void loop(){
         distanza = riposizionaVentola();
         if(distanza < 0) {    //Gestione del caso non sia riuscito a individuare un soggetto da puntare
           pwmModDist = 0;     //Non considera la distanza per il calcolo della PWM. Questo permette al ventilatore di funzionare anche se il sensore ad ultrasuoni sia rotto.
+          pesoDist = 0;
         }
         contaDistanzaErrata = 0;
       } else {
@@ -133,7 +142,7 @@ void loop(){
 
       byte pwmModMoist = 0;   //Variabile usata per calcolare la PWM per la ventola, proporzionale all'umidità della pelle
       short valore = analogRead(A0);
-      if(valore >= minMoist && valore <= maxMoist){
+      if(valore <= minMoist && valore >= maxMoist){
         pwmModMoist = map(valore, minMoist, maxMoist, 130, 255);
         pesoMoist = 6;
         lettureCorrette++;
@@ -156,16 +165,49 @@ void loop(){
         }
       }
 
-      if(lettureCorrette > 0){  //Effettua la media pesata (pesi da sistemare) dei risultati dei vari sensori per calcolare il valore adeguato per la PWM
-        pwm = ((pesoDist*pwmModDist)/4 +
-              (pesoTemp*pwmModTemp)/4 +
-              (pesoUmi*pwmModUmi)/4 +
-              (pesoMoist*pwmModMoist)/4) / lettureCorrette;
+      if(lettureCorrette > 0){  //Effettua la media pesata dei risultati dei vari sensori per calcolare il valore adeguato per la PWM voluta
+        newPwm = ((pesoDist*pwmModDist)/4 +
+                (pesoTemp*pwmModTemp)/4 +
+                (pesoUmi*pwmModUmi)/4 +
+                (pesoMoist*pwmModMoist)/4) / lettureCorrette;
       }
 
-      //Nel caso il calcolo sopra sfori la soglia massima per un qualsiasi motivo imprevisto
+      //Calcolo della nuova variazione della PWM tramite controllo PID
+      int P = newPwm - pwm;
+      int I = 0;
+      int D = newPwm - pwm;
+
+      storicoErrori[index] = P; //Inseriamo il nuovo errore assoluto nello storico
+
+      byte conta = 5;
+      if(firstIter){      //Se l'array dello storicoErrori non è ancora stato riempito, il numero di elementi da calcolare è pari a index + 1;
+        conta = index + 1;
+      }
+
+      if(conta > 0) {
+        for (byte i = 0; i < conta; i++){
+          I = I + storicoErrori[i];
+        }
+        I = I / conta;
+      }
+
+      //Calcolo del nuovo valore per la PWM creato basandosi sugli errori
+      pwm = pwm + (4*P/10) + (3*I/10) + (3*D/10);
+      
+      //Nel caso il calcolo sopra sfori in valori non validi per un qualsiasi motivo imprevisto
       if(pwm > 255){
         pwm = 255;
+      }
+      if (pwm < 0){
+        pwm = 0;
+      }
+
+      //Aggiornamento della prossima cella da scrivere nello storicoErrori
+      if(index == 4){
+        index = 0;
+        firstIter = false;
+      } else {
+        index++;
       }
     }
   }
@@ -174,7 +216,7 @@ void loop(){
   digitalWrite(fanSensoOrario, HIGH);     //Quando è HIGH e l'altra è LOW la ventola gira in senso orario
   analogWrite(pwmPin, pwm);
 
-  delay(1000); //Pausa per 50 millisecondi
+  delay(1000); //Pausa per un secondo
 }
 
 
