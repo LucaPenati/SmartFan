@@ -212,12 +212,11 @@ void loop(){
         index++;
       }
     }
-  }
-	
-  if(!tempUmiOK){
-    if(temperatura < minTemp){
-      pwm = 0;
-    }
+	if(!tempUmiOK){
+	    if(temperatura < minTemp){
+	      pwm = 0;
+	    }
+	  }
   }
 
   digitalWrite(fanSensoAntiorario, LOW);  //Quando è HIGH e l'altra è LOW la ventola gira in senso antiorario
