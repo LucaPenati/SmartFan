@@ -22,6 +22,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 const byte resetPin = A2;   //GPIO utilizzato per inviare il segnale di reset per spegnere il ventilatore
 const byte buttonPin = 2;   //GPIO collegato al pulsante di accensione/spegnimento del ventilatore
 bool acceso = false;        //Variabile che contiene lo stato acceso/spento del ventilatore
+const unsigned long DEBOUNCE_DELAY = 50;  //Intervallo di attesa per il debounce del pulsante
+volatile unsigned long ultimaPressione = 0; //Ultima volta che il pulsante è stato premuto
 
 byte pwm = 0;   //Variabile che memorizza l'ultimo valore di controllo tramite PWM usato per la velocità della ventola
 int storicoErrori[5] = {0, 0, 0, 0, 0};  //Memorizza gli ultimi 5 "errori", la distanza tra il valore di PWM voluto e quello effettivo
@@ -223,10 +225,14 @@ void loop(){
 //Funzione chiamata dall'Interrupt legato al bottone
 //Se il sistema è spento, lo setta ad acceso, se è già acceso, invece, resetta il sistema, che reinizializza anche la variabile "acceso" a false.
 void gestioneBottone(){
-  acceso = !acceso;
-  if(!acceso){
-    digitalWrite(resetPin, LOW);
+  unsigned long timestamp = millis();
+  if(timestamp - ultimaPressione > DEBOUNCE_DELAY){
+    acceso = !acceso;
+    if(!acceso){
+      digitalWrite(resetPin, LOW);
+    }
   }
+  ultimaPressione = timestamp;
 }
 
 
