@@ -16,95 +16,109 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-#include <DHT11.h> //Libreria per il lettore di temperatura e umidità di Dhruba Saha su licenza MIT https://github.com/dhrubasaha08/DHT11/blob/main/
+#include <DHT11.h> //Libreria per l'omonimo lettore di temperatura e umidità di Dhruba Saha su licenza MIT https://github.com/dhrubasaha08/DHT11/blob/main/
 #include <Stepper.h>  //Libreria per il controllo del motore stepper
 
-const byte resetPin = A2;   //GPIO utilizzato per inviare il segnale di reset per spegnere il ventilatore
-const byte buttonPin = 2;   //GPIO collegato al pulsante di accensione/spegnimento del ventilatore
-bool acceso = false;        //Variabile che contiene lo stato acceso/spento del ventilatore
-const unsigned long DEBOUNCE_DELAY = 50;  //Intervallo di attesa per il debounce del pulsante
-volatile unsigned long ultimaPressione = 0; //Ultima volta che il pulsante è stato premuto
+#define RESET_PIN A2    //GPIO utilizzato per inviare il segnale di reset per spegnere il ventilatore
+#define BUTTON_PIN 2    //GPIO collegato al pulsante di accensione/spegnimento del ventilatore 
+#define DEBOUNCE_DELAY 50   //Intervallo di attesa per il debounce del pulsante
+volatile unsigned long ultimaPressione = 0; //Ultima volta che il pulsante è stato premuto, da usare nella funzione ISR chiamata dall'interrupt alla pressione del pulsante
+bool acceso = false;    //Variabile che contiene lo stato acceso/spento del ventilatore in base alla pressione del pulsante
 
-byte pwm = 0;   //Variabile che memorizza l'ultimo valore di controllo tramite PWM usato per la velocità della ventola
-int storicoErrori[5] = {0, 0, 0, 0, 0};  //Memorizza gli ultimi 5 "errori", la distanza tra il valore di PWM voluto e quello effettivo
-byte index = 0;         //Indice che sarà usato per scrivere l'array sopra
-bool firstIter = true;  //Usato per stabilire quando lo storicoErrori sta venendo riempito per la prima volta, in modo da ignorare gli zeri di dichiarazione (differenziandoli da uno 0 dovuti allo stato "a regime")
+byte pwm = 0;   //Variabile che memorizza l'ultimo valore usato per controllare la velocità della ventola tramite PWM
+#define LUNG_STORICO 5  //Lunghezza dell'array seguente
+int storicoErrori[LUNG_STORICO] = {0, 0, 0, 0, 0};  //Memorizza gli ultimi 5 "errori", la distanza tra il valore di PWM voluto e quello effettivo
+byte index = 0;         //Indice che sarà usato per scrivere nell'array sopra
+bool primiAccessi = true;  //Usato per stabilire quando lo storicoErrori sta venendo riempito per la prima volta, in modo da ignorare gli zeri di dichiarazione (differenziandoli da eventuali 0 dovuti allo stato "a regime")
 
-const byte moistPin = A0;   //Il pin di Analog Input che riceve i dati del sensore per l'umidità della pelle
-const short minMoist = 490; //Valore ricavato dal sensore di umità della pelle quando è asciutto (da tarare sullo specifico sensore)
-const short maxMoist = 190; //Valore ricavato dal sensore di umità della pelle quando è immerso in acqua (da tarare sullo specifico sensore)
+#define MOIST_PIN A0    //Il pin di Analog Input che riceve i dati del sensore per l'umidità della pelle
+#define MIN_MOIST 490   //Valore ricavato dal sensore di umità della pelle quando è asciutto (da tarare sullo specifico sensore)
+#define MAX_MOIST 190   //Valore ricavato dal sensore di umità della pelle quando è immerso in acqua (da tarare sullo specifico sensore)
 //Braccio bagnato: tra 236 e 270
 //Braccio asciutto: attorno a 400-410
 
-const short stepsPerRevolution = 2048;  //Numero di step che compongono una rotazione completa del motore stepper
-Stepper myStepper(stepsPerRevolution, 8, 10, 9, 11); //Inizializza l'oggetto di controllo del motore stepper con i GPIO da 8 a 11 per i segnali
+#define STEPS_REVOLUTION 2048   //Numero di step che compongono una rotazione completa del motore stepper
+#define STEPS_MOVEMENT 20       //Numero di step per ogni movimento del motore (usato nella funzione "riposizionaVentola")
+Stepper myStepper(STEPS_REVOLUTION, 8, 10, 9, 11); //Inizializza l'oggetto di controllo del motore stepper con i GPIO da 8 a 11 per i segnali
 //Sul modulo di controllo del motore stepper il pin 8 è connesso a 1N4, 9 a 1N3, 10 a 1N2, e 11 a 1N1
 
-const byte trigPin = 4;  //Output per inviare il segnale di trigger al sensore ad ultrasuoni
-const byte echoPin = 3;  //Input per ricevere la distanza rilevata
-const short maxDist = 50;  //Massima distanza in cm che considera per essere puntata verso una persona
-short distanza = maxDist/2;  //Distanza in cm misurata dal sensore ad ultrasuoni. E' inizializzata in tal modo per il caso in cui il ventilatore non stia puntando un soggetto all'accensione
-byte contaDistanzaErrata = 0;  //Contatore per il numero di volte che la distanza è stata rilevata come errata o oltre la maxDist
+#define TRIG_PIN 4   //Output per inviare il segnale di trigger al sensore ad ultrasuoni
+#define ECHO_PIN 3   //Input per ricevere il tempo passato tra l'invio dell'impulso ultrasonico e la ricezione della sua eco
+#define MAX_DIST 50  //Massima distanza in cm che considera per essere puntata verso una persona
+short distanza = MAX_DIST/2;  //Distanza in cm misurata dal sensore ad ultrasuoni. E' inizializzata in tal modo per il caso in cui il ventilatore non stia puntando un soggetto all'accensione
+byte contaDistanzaErrata = 0; //Contatore per il numero di volte che la distanza è stata rilevata come errata o oltre la maxDist
 
-const byte pwmPin = 5;   //GPIO per trasmettere la PWM al motore della ventola
-const byte fanSensoAntiorario = 6;  //Due GPIO per il controllo della direzione di rotazione della ventola
-const byte fanSensoOrario = 7;      //Quando uno dei due è HIGH e l'altro è LOW, la ventola gira nel senso indicato dal nome della variabile in HIGH
+#define PWM_PIN 5           //GPIO per trasmettere il valore usato per la PWM al ponte h che controlla il motore della ventola
+#define FAN_ANTIORARIO 6    //Due GPIO per il controllo della direzione di rotazione della ventola
+#define FAN_ORARIO 7        //Quando uno dei due è HIGH e l'altro è LOW, la ventola gira nel senso indicato dal nome della variabile in HIGH
 
-const short minTemp = 20;   //Temperatura minima sopra la quale il ventilatore si accende (arbitraria)
-const short maxTemp = 40;   //Temperatura massima considerata per stabilire proporzionalmente la velocità della ventola
+#define TEMP_ARRESTO 18   //Temperatura pari o sotto la quale, se il ventilatore è acceso e in funzione, arresta la ventola
+#define MIN_TEMP 20       //Temperatura minima alla quale il ventilatore avvia la ventola (arbitraria)
+#define MAX_TEMP 40       //Temperatura massima considerata per stabilire proporzionalmente la velocità della ventola
+bool accesoPerTemperatura = false;  /*Questa variabile tiene presente quando il ventilatore è da considerarsi acceso per raggiungimento o superamento della MIN_TEMP, 
+                                      va considerata assieme alla variabile "acceso" precedententemente dichiarata */
+
 //Crea un'istanza della classe DHT11 per gestire il sensore di temperatura e umidità dell'aria
-DHT11 dht11(12);   //Definisce il GPIO digitale 4 come input dal sensore
+DHT11 dht11(12);   //Definisce il GPIO digitale 12 come input dal sensore
 
 
 void setup(){
-  digitalWrite(resetPin, HIGH);   //Il pin A2 viene configurato per essere sempre HIGH in OUTPUT, perché viene usato nella ISR quando il bottone
-  pinMode(resetPin, OUTPUT);      //è premuto per inviare un segnale LOW al pin di RESET quando lo scopo è spegnere il ventilatore.
-  pinMode(buttonPin, INPUT_PULLUP);
+  digitalWrite(RESET_PIN, HIGH);   //Il GPIO viene configurato per essere sempre HIGH in OUTPUT, perché viene usato nella ISR alla pressione
+  pinMode(RESET_PIN, OUTPUT);      //del bottone per inviare un segnale LOW al pin di RESET quando lo scopo è spegnere il ventilatore.
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
   //La pressione del pulsante attiva un interrupt, in questo modo in qualsiasi momento il pulsante venga premuto, il controllore risponde
   //agendo di conseguenza.
-  attachInterrupt(digitalPinToInterrupt(buttonPin), gestioneBottone, FALLING);
-  pinMode(moistPin, INPUT);
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), gestioneBottone, FALLING);
+  pinMode(MOIST_PIN, INPUT);
   myStepper.setSpeed(10);   //Imposta la velocità del motore stepper a 10 rpm
-  pinMode(trigPin, OUTPUT);
-	pinMode(echoPin, INPUT);
-  pinMode(fanSensoAntiorario, OUTPUT);
-  pinMode(fanSensoOrario, OUTPUT);
+  pinMode(TRIG_PIN, OUTPUT);
+	pinMode(ECHO_PIN, INPUT);
+  pinMode(FAN_ANTIORARIO, OUTPUT);
+  pinMode(FAN_ORARIO, OUTPUT);
 }
 
 
 //Main loop
 void loop(){
-  byte newPwm = 0; //Valore per il controllo della velocità della ventola tramite PWM
-
   //Le funzioni del ventilatore saranno eseguite solo se lo stato del sistema è "acceso", e la temperatura è stata letta correttamente
   //ed è superiore alla soglia minima. Se il sensore non è in grado di leggere la temperatura, viene considerato solo se l'utente
   //abbia acceso o meno il ventilatore.
   if(acceso){
     
-    int temperatura, umidita;  //Variabili che saranno usate dal sensore DHT11
-    bool tempUmiOK = dht11.readTemperatureHumidity(temperatura, umidita);; //Legge la temperatura e umidità dal sensore DHT11.
-    //Nota: restituisce false se la lettura è andata bene.
+    int temperatura = 0;  //Variabili che saranno usate dal sensore DHT11
+    int umidita = 0;
+    int tempUmiFail = dht11.readTemperatureHumidity(temperatura, umidita); //Legge la temperatura e umidità dal sensore DHT11.
+    //Nota 1: restituisce 0 se la lettura è andata bene, che corrisponde normalmente ad un false booleano, da cui il nome della variabile.
+    //Nota 2: ho utilizzato la funzione che legge entrambe le grandezze assieme perché in questo sistema se rischieste separatamente
+    //viene sollevato un errore di timeout per la seconda misura richiesta (es. umidità se richiesta dopo temperatura)
 
-    if((!tempUmiOK && temperatura >= minTemp) || tempUmiOK){
-      //Pesi per il calcolo tramite media pesata del valore usato per controllare la velocità della ventola via PWM
+    if((tempUmiFail == 0 && temperatura >= MIN_TEMP) || tempUmiFail != 0){
+      accesoPerTemperatura = true;  //Se la temperatura è superiore alla soglia (oppure se il sensore è rotto), la ventola si avvia
+      /*Nota: accesoPerTemperatura essendo variabile globale rimane a "true" anche qualora la temperatura cada sotto la soglia minima
+        questo per evitare repentini avvii e arresti nell'intorno della MIN_TEMP. Viene settata a false solo verso la fine del loop
+        principale, e solo se la temperatura misurata è pari o inferiore ad una soglia ancora minore di MIN_TEMP, ovvero TEMP_ARRESTO */
+    }
+
+    if(accesoPerTemperatura){
+      //Pesi per il calcolo tramite media pesata del valore target per il controllo della velocità della ventola via PWM
       byte pesoDist = 0;
       byte pesoTemp = 0;
       byte pesoUmi = 0;
       byte pesoMoist = 0;
     
-      byte lettureCorrette = 0; //Conta quanti sensori hanno effettuato una lettura corretta, servirà a fare la media pesata per la pwm
-      byte pwmModTemp = 0;    //Variabile usata per calcolare la PWM per la ventola, proporzionale alla temperatura
-      byte pwmModUmi = 0;     //Variabile usata per calcolare la PWM per la ventola, proporzionale all'umidità dell'aria
+      byte lettureCorrette = 0; //Conta quanti sensori hanno effettuato una lettura corretta, servirà a fare la media pesata per il valore PWM target
+      byte pwmModTemp = 0;    //Variabile usata per calcolare la PWM voluta per la ventola, proporzionale alla temperatura
+      byte pwmModUmi = 0;     //Variabile usata per calcolare la PWM voluta per la ventola, proporzionale all'umidità dell'aria
 
-      if(!tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato all'umidità dell'aria
+      if(tempUmiFail == 0){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato all'umidità dell'aria
         pwmModUmi = map(umidita, 0, 100, 130, 255);
         pesoUmi = 3;
         lettureCorrette++;
       }
 
-      if(!tempUmiOK){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato alla temperatura
-        if(temperatura < maxTemp){
-          pwmModTemp = map(temperatura, 0, maxTemp, 130, 255);
+      if(tempUmiFail == 0){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato alla temperatura
+        if(temperatura < MAX_TEMP){
+          pwmModTemp = map(temperatura, TEMP_ARRESTO, MAX_TEMP, 130, 255);
         } else {  //Se la temperatua è maggiore o uguale alla temperatura di soglia massima, il modificatore PWM è massimizzato
           pwmModTemp = 255;
         }
@@ -116,16 +130,14 @@ void loop(){
       short durata = impulso();
       //Calcolo della distanza dimezzando il tempo passato dall'invio dell'impulso ultrasonico e moltiplicandolo per la velocità del suono in cm/microsecondi
       short dist = (durata*.0343)/2;
-      if(dist <= maxDist && dist > 0){  //Controllo della validità della misurazione
+      if(dist <= MAX_DIST && dist > 0){  //Controllo della validità della misurazione
         distanza = dist;
-        pesoDist = 4;
         contaDistanzaErrata = 0;
       } else {
         contaDistanzaErrata++;
-        pesoDist = 4;
       }
-
-      byte pwmModDist = 0;  //Variabile usata per calcolare la PWM per la ventola, proporzionale alla distanza
+      pesoDist = 4;
+      byte pwmModDist = 0;  //Variabile usata per calcolare la PWM voluta per la ventola, proporzionale alla distanza
 
       //Se ci sono stati troppi rilevamenti errati consecutivi della distanza, la ventola prova a riposizionarsi
       if(contaDistanzaErrata > 3){
@@ -134,24 +146,34 @@ void loop(){
         if(distanza < 0) {    //Gestione del caso non sia riuscito a individuare un soggetto da puntare
           pwmModDist = 0;     //Non considera la distanza per il calcolo della PWM. Questo permette al ventilatore di funzionare anche se il sensore ad ultrasuoni sia rotto.
           pesoDist = 0;
+        } else {
+          lettureCorrette++;
+          pwmModDist = map(distanza, 0, MAX_DIST, 130, 255);
         }
-        contaDistanzaErrata = 0;
+        contaDistanzaErrata = 0;  //Resetta il contatore per non ricadere immediatamente nel loop di riposizionamento se la prossima lettura del sensore è una distanza non valida
       } else {
         lettureCorrette++;
-        pesoDist = 4;
-        pwmModDist = map(distanza, 0, maxDist, 130, 255);
+        pwmModDist = map(distanza, 0, MAX_DIST, 130, 255);
       }
 
-      byte pwmModMoist = 0;   //Variabile usata per calcolare la PWM per la ventola, proporzionale all'umidità della pelle
-      short valore = analogRead(A0);
-      if(valore <= minMoist && valore >= maxMoist){
-        pwmModMoist = map(valore, minMoist, maxMoist, 130, 255);
+      byte pwmModMoist = 0;   //Variabile usata per calcolare la PWM voluta per la ventola, proporzionale all'umidità della pelle
+      short valore = analogRead(MOIST_PIN);
+      if(valore <= MIN_MOIST && valore >= MAX_MOIST){   //Nel caso del sensore utilizzato, MIN_MOIST è il limite superiore, e MAX_MOIST quello inferiore
+        pwmModMoist = map(valore, MIN_MOIST, MAX_MOIST, 130, 255);  //Più "valore" è un numero basso (tendente a MAX_MOIST), più verrà convertito ad un numero tendente a 255
         pesoMoist = 6;
         lettureCorrette++;
       }
 
-      //Banale e semplicistica gestione dei pesi in caso di malfunzionamento dei sensori, considerata in base ai pesi di default
-      if((pesoDist + pesoTemp + pesoUmi + pesoMoist) > (lettureCorrette*4)){
+      //Banale e semplicistica gestione dei pesi in caso di malfunzionamento dei sensori, considerata in base ai pesi stabiliti e cosa succede quando i vari sensori falliscono
+      /*
+        I pesi normalmente sono:
+        - pesoDist = 4;
+        - pesoTemp = 3;
+        - pesoUmi = 3;
+        - pesoMoist = 6;
+        Inoltre, per come sono raccolte, le variabili di temperatura e peso, se falliscono, falliscono assieme. Entrambi i loro pesi saranno quindi a 0 se il loro sensore malfunziona.
+      */
+      if((pesoDist + pesoTemp + pesoUmi + pesoMoist) > (lettureCorrette * 4)){  //Letture corrette è moltiplicato per 4 perché in realtà tutti i pesi andrebbero divisi per 4, come sono nella media ponderata sotto
         if(pesoDist>0){
           pesoDist--;
           pesoMoist--;
@@ -160,29 +182,32 @@ void loop(){
         }
       } else if ((pesoDist + pesoTemp + pesoUmi + pesoMoist) < (lettureCorrette*4)){
         if(pesoDist>0){
-          pesoDist = pesoDist + 2;
+          pesoDist++;
+          pesoTemp++;
         } else {
           pesoTemp++;
           pesoUmi++;
         }
       }
 
-      if(lettureCorrette > 0){  //Effettua la media pesata dei risultati dei vari sensori per calcolare il valore adeguato per la PWM voluta
+      byte newPwm = 0;    //Variabile che conterrà il valore target per guidare la velocità della ventola tramite PWM
+
+      if(lettureCorrette > 0){  //Effettua la media ponderata dei risultati dei vari sensori per calcolare il valore adeguato per la PWM voluta
         newPwm = ((pesoDist*pwmModDist)/4 +
                 (pesoTemp*pwmModTemp)/4 +
                 (pesoUmi*pwmModUmi)/4 +
                 (pesoMoist*pwmModMoist)/4) / lettureCorrette;
       }
 
-      //Calcolo della nuova variazione della PWM tramite controllo PID
-      int P = newPwm - pwm;
-      int I = 0;
-      int D = newPwm - pwm;
+      //Calcolo della nuova variazione della PWM tramite controllo PID per smorzare cambiamenti repentini della velocità (la newPwm calcolata sopra tende ad oscillare tra le iterazioni)
+      int P = newPwm - pwm;   //Errore proporzionale, inteso come differenza tra il valore voluto per la PWM e il valore attuale
+      int I = 0;              //Errore integrativo, visto come media degli errori "P" precedentemente inseriti nello storicoErrori
+      int D = newPwm - pwm;   //Errore derivativo, che nella situazione discreta a tempo costante (situazione che si ha a meno che non si attivi riposizionaVentola, che considero come un'eccezione ignorabile)
 
-      storicoErrori[index] = P; //Inseriamo il nuovo errore assoluto nello storico
+      storicoErrori[index] = P; //Inserisce il nuovo errore proporzionale nello storico
 
-      byte conta = 5;
-      if(firstIter){      //Se l'array dello storicoErrori non è ancora stato riempito, il numero di elementi da calcolare è pari a index + 1;
+      byte conta = LUNG_STORICO;
+      if(primiAccessi){      //Se l'array dello storicoErrori non è ancora stato riempito, il numero di elementi da calcolare è pari a index + 1;
         conta = index + 1;
       }
 
@@ -193,48 +218,50 @@ void loop(){
         I = I / conta;
       }
 
+      //Aggiornamento della prossima cella da scrivere nello storicoErrori all'iterazione successiva del main loop
+      if(index >= (LUNG_STORICO - 1)){
+        index = 0;
+        primiAccessi = false;
+      } else {
+        index++;
+      }
+
       //Calcolo del nuovo valore per la PWM creato basandosi sugli errori
       pwm = pwm + (4*P/10) + (3*I/10) + (3*D/10);
       
       //Nel caso il calcolo sopra sfori in valori non validi per un qualsiasi motivo imprevisto
       if(pwm > 255){
         pwm = 255;
-      }
-      if (pwm < 0){
+      } else if (pwm < 0){
         pwm = 0;
       }
 
-      //Aggiornamento della prossima cella da scrivere nello storicoErrori
-      if(index == 4){
-        index = 0;
-        firstIter = false;
-      } else {
-        index++;
-      }
     }
-	if(!tempUmiOK){
-	    if(temperatura < minTemp){
-	      pwm = 0;
-	    }
-	  }
+
+    //Se la temperatura è caduta oltre la soglia di arresto, il ventilatore si ferma (pur rimanendo tecnicamente "acceso" tramite variabile associata alla pressione del pulsante)
+    if(tempUmiFail == 0 && temperatura <= TEMP_ARRESTO){
+      accesoPerTemperatura = false;
+      pwm = 0;
+    }
+
   }
 
-  digitalWrite(fanSensoAntiorario, LOW);  //Quando è HIGH e l'altra è LOW la ventola gira in senso antiorario
-  digitalWrite(fanSensoOrario, HIGH);     //Quando è HIGH e l'altra è LOW la ventola gira in senso orario
-  analogWrite(pwmPin, pwm);
+  digitalWrite(FAN_ANTIORARIO, LOW);  //Quando è HIGH e l'altra è LOW la ventola gira in senso antiorario
+  digitalWrite(FAN_ORARIO, HIGH);     //Quando è HIGH e l'altra è LOW la ventola gira in senso orario
+  analogWrite(PWM_PIN, pwm);
 
   delay(1000); //Pausa per un secondo
 }
 
 
-//Funzione chiamata dall'Interrupt legato al bottone
+//Funzione chiamata dall'Interrupt legato al pulsante di accensione/spegnimento.
 //Se il sistema è spento, lo setta ad acceso, se è già acceso, invece, resetta il sistema, che reinizializza anche la variabile "acceso" a false.
 void gestioneBottone(){
   unsigned long timestamp = millis();
   if(timestamp - ultimaPressione > DEBOUNCE_DELAY){
     acceso = !acceso;
     if(!acceso){
-      digitalWrite(resetPin, LOW);
+      digitalWrite(RESET_PIN, LOW);
     }
   }
   ultimaPressione = timestamp;
@@ -242,35 +269,35 @@ void gestioneBottone(){
 
 
 //Questa funzione triggera l'invio di un impulso ultrasonico con l'apposito sensore.
-//Restituisce la distanza letta in cm
+//Restituisce il tempo in microsecondi passato tra l'invio dell'impulso e la ricezione dell'eco.
 short impulso(){
-  digitalWrite(trigPin, LOW);   //Imposta il trigger pin a LOW per 2 microsecondi per assicurarsi un segnale pulito
+  digitalWrite(TRIG_PIN, LOW);   //Imposta il trigger pin a LOW per 2 microsecondi per assicurarsi un segnale pulito
 	delayMicroseconds(2);
-	digitalWrite(trigPin, HIGH);  //Imposta il trigger pin a HIGH per 10 microsecondi
+	digitalWrite(TRIG_PIN, HIGH);  //Imposta il trigger pin a HIGH per 10 microsecondi
 	delayMicroseconds(10);
-	digitalWrite(trigPin, LOW);   //Riporta il trigger pin a LOW
+	digitalWrite(TRIG_PIN, LOW);   //Riporta il trigger pin a LOW
   
-  return pulseIn(echoPin, HIGH);
+  return pulseIn(ECHO_PIN, HIGH);
 }
 
 
 //Questa funzione usa il motore stepper per riposizionare la ventola finché il sensore ad ultrasuoni non restituisce
 //un valore accettabile, ovvero non negativo ed inferiore alla distanza soglia che viene considerata per la presenza
 //di una persona.
-//Restituisce la prima distanza letta correttamente, o un valore negativo se non è riuscito a registrare una distanza valida
+//Restituisce la prima distanza letta correttamente, o un valore negativo se non è riuscito a registrare una distanza valida entro i limiti di movimento
 short riposizionaVentola(){
   short i = 1;   //contatore dei movimenti fatti dallo stepper, usato anche per aumentare l'ampiezza della rotazione a ogni iterazione
   short direzione = 1; //usato per stabilire la direzione della rotazione del motore, viene poi invertito per l'iterazione successiva
-  short dis;
-  short dur;
-  while (i<51){   //Approssimativamente permette di fare uno scan di 180°
-    myStepper.step(i*20*direzione);
+  short dis;  //Distanza in cm
+  short dur;  //Durata in microsecondi
+  while (i <= (STEPS_REVOLUTION / (2 * STEPS_MOVEMENT))){   //Approssimativamente permette di fare uno scan di 180°
+    myStepper.step(i * STEPS_MOVEMENT * direzione);
     delay(2000);
 
-    short dur = impulso();  //Chiama le istruzioni necessarie per inviare un impulso ultrasonico
+    dur = impulso();  //Chiama le istruzioni necessarie per inviare un impulso ultrasonico
     //Calcolo della distanza dimezzando il tempo passato dall'invio dell'impulso ultrasonico e moltiplicandolo per la velocità del suono in cm/microsecondi
-    short dis = (dur*.0343)/2;
-    if(dis <= maxDist && dis > 0){
+    dis = (dur*.0343)/2;
+    if(dis <= MAX_DIST && dis > 0){
       return dis;
     }
     direzione = -direzione;
@@ -278,7 +305,7 @@ short riposizionaVentola(){
   }
   //Le seguenti istruzioni riportano la ventola nella posizione iniziale
   i = i/2;
-  myStepper.step(i*20*direzione);
+  myStepper.step(i * STEPS_MOVEMENT * direzione);
   delay(2000);
   return -1;
 }
