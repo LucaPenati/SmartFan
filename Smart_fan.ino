@@ -1,5 +1,5 @@
 /*
-Programma di controllo per una "Smart Fan", un piccolo ventilatore che reagisce alle condizioni ambientali
+Programma di controllo per una "Smart Fan", un piccolo ventilatore che reagisce alle condizioni ambientali, controllato da una board Arduino UNO
 Copyright (C) 2026  Luca Penati
 
 This program is free software: you can redistribute it and/or modify
@@ -25,7 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 volatile unsigned long ultimaPressione = 0; //Ultima volta che il pulsante è stato premuto, da usare nella funzione ISR chiamata dall'interrupt alla pressione del pulsante
 bool acceso = false;    //Variabile che contiene lo stato acceso/spento del ventilatore in base alla pressione del pulsante
 
-byte pwm = 0;   //Variabile che memorizza l'ultimo valore usato per controllare la velocità della ventola tramite PWM
+short pwm = 0;   //Variabile che memorizza l'ultimo valore usato per controllare la velocità della ventola tramite PWM
 #define LUNG_STORICO 5  //Lunghezza dell'array seguente
 int storicoErrori[LUNG_STORICO] = {0, 0, 0, 0, 0};  //Memorizza gli ultimi 5 "errori", la distanza tra il valore di PWM voluto e quello effettivo
 byte index = 0;         //Indice che sarà usato per scrivere nell'array sopra
@@ -94,10 +94,10 @@ void loop(){
 
     if((tempUmiFail == 0 && temperatura >= MIN_TEMP) || tempUmiFail != 0){
       accesoPerTemperatura = true;  //Se la temperatura è superiore alla soglia (oppure se il sensore è rotto), la ventola si avvia
-      /*Nota: accesoPerTemperatura essendo variabile globale rimane a "true" anche qualora la temperatura cada sotto la soglia minima:
+      /*Nota: accesoPerTemperatura essendo variabile globale rimane a "true" anche qualora la temperatura cada sotto la soglia minima
         questo per evitare repentini avvii e arresti nell'intorno della MIN_TEMP. */
     }
-	
+
     //Se la temperatura è caduta oltre la soglia di arresto, il ventilatore si ferma (pur rimanendo tecnicamente "acceso" tramite variabile associata alla pressione del pulsante)
     if(tempUmiFail == 0 && temperatura <= (MIN_TEMP - FINESTRA_TEMP)){
       accesoPerTemperatura = false;
@@ -195,7 +195,7 @@ void loop(){
         }
       }
 
-      byte newPwm = 0;    //Variabile che conterrà il valore target per guidare la velocità della ventola tramite PWM
+      short newPwm = 0;    //Variabile che conterrà il valore target per guidare la velocità della ventola tramite PWM
 
       if(lettureCorrette > 0){  //Effettua la media ponderata dei risultati dei vari sensori per calcolare il valore adeguato per la PWM voluta
         newPwm = ((pesoDist*pwmModDist)/4 +
@@ -203,6 +203,8 @@ void loop(){
                 (pesoUmi*pwmModUmi)/4 +
                 (pesoMoist*pwmModMoist)/4) / lettureCorrette;
       }
+      //Effettua un controllo qualora i calcoli abbiano prodotto valori non validi, e restituisce un valore adeguato a seconda del caso
+      newPwm = checkPWM(newPwm);
 
       //Calcolo della nuova variazione della PWM tramite controllo PID per smorzare cambiamenti repentini della velocità (la newPwm calcolata sopra tende ad oscillare tra le iterazioni)
       int P = newPwm - pwm;   //Errore proporzionale, inteso come differenza tra il valore voluto per la PWM e il valore attuale
@@ -233,14 +235,9 @@ void loop(){
 
       //Calcolo del nuovo valore per la PWM creato basandosi sugli errori
       pwm = pwm + (4*P/10) + (3*I/10) + (3*D/10);
-      
-      //Nel caso il calcolo sopra sfori in valori non validi per un qualsiasi motivo imprevisto
-      if(pwm > 255){
-        pwm = 255;
-      } else if (pwm < 0){
-        pwm = 0;
-      }
 
+      //Effettua un controllo qualora i calcoli abbiano prodotto valori non validi, e restituisce un valore adeguato a seconda del caso
+      pwm = checkPWM(pwm);
     }
   }
 
@@ -263,6 +260,18 @@ void gestioneBottone(){
     }
   }
   ultimaPressione = timestamp;
+}
+
+//Controlla che un valore ottenuto per la PWM sia valido (tra 0 e 255).
+//Restituisce lo stesso valore ricevuto in ingresso se è nel range accettabile, altrimenti 0 se il valore era negativo, oppure 255 se era oltre tale soglia.
+short checkPWM(short valorePWM){
+  if(valorePWM > 255){
+    return 255;
+  } else if (valorePWM < 0){
+    return 0;
+  } else {
+    return valorePWM;
+  }
 }
 
 
