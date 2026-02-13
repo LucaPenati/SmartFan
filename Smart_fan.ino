@@ -52,8 +52,8 @@ byte contaDistanzaErrata = 0; //Contatore per il numero di volte che la distanza
 #define FAN_ANTIORARIO 6    //Due GPIO per il controllo della direzione di rotazione della ventola
 #define FAN_ORARIO 7        //Quando uno dei due è HIGH e l'altro è LOW, la ventola gira nel senso indicato dal nome della variabile in HIGH
 
-#define TEMP_ARRESTO 18   //Temperatura pari o sotto la quale, se il ventilatore è acceso e in funzione, arresta la ventola
 #define MIN_TEMP 20       //Temperatura minima alla quale il ventilatore avvia la ventola (arbitraria)
+#define FINESTRA_TEMP 2   //Margine al di sotto della MIN_TEMP che mantiene la ventola in funzione, se la temperatura cala fino a o sotto MIN_TEMP - FINESTRA_TEMP, arresta la ventola
 #define MAX_TEMP 40       //Temperatura massima considerata per stabilire proporzionalmente la velocità della ventola
 bool accesoPerTemperatura = false;  /*Questa variabile tiene presente quando il ventilatore è da considerarsi acceso per raggiungimento o superamento della MIN_TEMP, 
                                       va considerata assieme alla variabile "acceso" precedententemente dichiarata */
@@ -94,9 +94,9 @@ void loop(){
 
     if((tempUmiFail == 0 && temperatura >= MIN_TEMP) || tempUmiFail != 0){
       accesoPerTemperatura = true;  //Se la temperatura è superiore alla soglia (oppure se il sensore è rotto), la ventola si avvia
-      /*Nota: accesoPerTemperatura essendo variabile globale rimane a "true" anche qualora la temperatura cada sotto la soglia minima
+      /*Nota: accesoPerTemperatura essendo variabile globale rimane a "true" anche qualora la temperatura cada sotto la soglia minima:
         questo per evitare repentini avvii e arresti nell'intorno della MIN_TEMP. Viene settata a false solo verso la fine del loop
-        principale, e solo se la temperatura misurata è pari o inferiore ad una soglia ancora minore di MIN_TEMP, ovvero TEMP_ARRESTO */
+        principale, e solo se la temperatura misurata è pari o inferiore alla soglia (MIN_TEMP - FINESTRA_TEMP) */
     }
 
     if(accesoPerTemperatura){
@@ -118,7 +118,7 @@ void loop(){
 
       if(tempUmiFail == 0){  //Se la lettura è andata bene, calcola il modificatore per la PWM legato alla temperatura
         if(temperatura < MAX_TEMP){
-          pwmModTemp = map(temperatura, TEMP_ARRESTO, MAX_TEMP, 130, 255);
+          pwmModTemp = map(temperatura, (MIN_TEMP - FINESTRA_TEMP), MAX_TEMP, 130, 255);
         } else {  //Se la temperatua è maggiore o uguale alla temperatura di soglia massima, il modificatore PWM è massimizzato
           pwmModTemp = 255;
         }
@@ -239,7 +239,7 @@ void loop(){
     }
 
     //Se la temperatura è caduta oltre la soglia di arresto, il ventilatore si ferma (pur rimanendo tecnicamente "acceso" tramite variabile associata alla pressione del pulsante)
-    if(tempUmiFail == 0 && temperatura <= TEMP_ARRESTO){
+    if(tempUmiFail == 0 && temperatura <= (MIN_TEMP - FINESTRA_TEMP)){
       accesoPerTemperatura = false;
       pwm = 0;
     }
