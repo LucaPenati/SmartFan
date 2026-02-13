@@ -179,19 +179,24 @@ void loop(){
         Inoltre, per come sono raccolte, le variabili di temperatura e peso, se falliscono, falliscono assieme. Entrambi i loro pesi saranno quindi a 0 se il loro sensore malfunziona.
       */
       if((pesoDist + pesoTemp + pesoUmi + pesoMoist) > (lettureCorrette * 4)){  //Letture corrette è moltiplicato per 4 perché in realtà tutti i pesi andrebbero divisi per 4, come sono nella media ponderata sotto
+        /*La somma dei pesi risulta maggiore di lettureCorrette*4 solo se pesoMoist è attivo (pari a 6), quindi o sono fallite le letture di temperatura e umidità, o sono fallite sia esse che quelle della distanza.
+          Infatti, visti i pesi di temperatura e umidità pari a 3 ciascuno, se fallisce solo la lettura della distanza la somma delle tre variabili rimaste è 12, pari a lettureCorrette*4 (3*4), quindi non
+          serve modificare i pesi. */
         if(pesoDist>0){
-          pesoDist--;
-          pesoMoist--;
+          pesoDist--;     //Caso in cui solo il sensore per temperatura e umidità abbia fallito, quindi bisogna ribilanciare
+          pesoMoist--;    //i pesi rimanenti per la distanza e umidità della pelle in modo che la loro somma sia pari a 8
         } else {
-          pesoMoist = pesoMoist - 2;
+          pesoMoist = pesoMoist - 2;  //Caso in cui la lettura dell'umidità della pelle sia l'unica valida
         }
       } else if ((pesoDist + pesoTemp + pesoUmi + pesoMoist) < (lettureCorrette*4)){
+        /*Questo caso avviene solo se la lettura dell'umidità della pelle sia fallita, visto il suo peso di 6. I casi da distinguere sono dunque se solo quel sensore abbia fallito, o sia fallita anche la lettura
+          della distanza. Se fossero falliti sia il sensore per la pelle che quello per temperatura e umidità, non servirebbero cambiamenti perché il peso della distanza è 4, pari a lettureCorrette*4 (1*4). */
         if(pesoDist>0){
-          pesoDist++;
-          pesoTemp++;
+          pesoDist++;     //Caso in cui solo il sensore di umidità della pelle ha fallito. Viene aumentato anche il peso della temperatura perché
+          pesoTemp++;     //nelle prove con la ventola reale, dare troppo peso alla distanza aumenta rapidamente il valore usato per la PWM rispetto a quando tutto funziona
         } else {
-          pesoTemp++;
-          pesoUmi++;
+          pesoTemp++;     //Caso in cui sia il sensore di umidità della pelle che quello della distanza abbiano fallito, lasciando solo temperatura e umidità a guidare la ventola
+          pesoUmi++;      //Essendo di base entrambi i pesi a 3, con questo vanno a 4, raggiungendo il bilanciamento con lettureCorrette*4, evitando di causare problemi al calcolo della media
         }
       }
 
@@ -245,7 +250,7 @@ void loop(){
   digitalWrite(FAN_ORARIO, HIGH);     //Quando è HIGH e l'altra è LOW la ventola gira in senso orario
   analogWrite(PWM_PIN, pwm);
 
-  delay(1000); //Pausa per un secondo
+  delay(1000); //Pausa per un secondo, con un ritardo minore la lettura dei sensori ad ogni loop risulta erratica
 }
 
 
