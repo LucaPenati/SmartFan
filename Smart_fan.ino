@@ -95,8 +95,13 @@ void loop(){
     if((tempUmiFail == 0 && temperatura >= MIN_TEMP) || tempUmiFail != 0){
       accesoPerTemperatura = true;  //Se la temperatura è superiore alla soglia (oppure se il sensore è rotto), la ventola si avvia
       /*Nota: accesoPerTemperatura essendo variabile globale rimane a "true" anche qualora la temperatura cada sotto la soglia minima:
-        questo per evitare repentini avvii e arresti nell'intorno della MIN_TEMP. Viene settata a false solo verso la fine del loop
-        principale, e solo se la temperatura misurata è pari o inferiore alla soglia (MIN_TEMP - FINESTRA_TEMP) */
+        questo per evitare repentini avvii e arresti nell'intorno della MIN_TEMP. */
+    }
+	
+    //Se la temperatura è caduta oltre la soglia di arresto, il ventilatore si ferma (pur rimanendo tecnicamente "acceso" tramite variabile associata alla pressione del pulsante)
+    if(tempUmiFail == 0 && temperatura <= (MIN_TEMP - FINESTRA_TEMP)){
+      accesoPerTemperatura = false;
+      pwm = 0;
     }
 
     if(accesoPerTemperatura){
@@ -237,13 +242,6 @@ void loop(){
       }
 
     }
-
-    //Se la temperatura è caduta oltre la soglia di arresto, il ventilatore si ferma (pur rimanendo tecnicamente "acceso" tramite variabile associata alla pressione del pulsante)
-    if(tempUmiFail == 0 && temperatura <= (MIN_TEMP - FINESTRA_TEMP)){
-      accesoPerTemperatura = false;
-      pwm = 0;
-    }
-
   }
 
   digitalWrite(FAN_ANTIORARIO, LOW);  //Quando è HIGH e l'altra è LOW la ventola gira in senso antiorario
