@@ -241,7 +241,7 @@ void loop(){
       }
 
       //Calcolo del nuovo valore per la PWM creato basandosi sugli errori
-      pwm = pwm + (4*P/10) + (2*I/10) + (4*D/10);
+      pwm = pwm + (4*P/10) + (3*I/10) + (3*D/10);
 
       //Effettua un controllo qualora i calcoli abbiano prodotto valori non validi, e restituisce un valore adeguato a seconda del caso
       pwm = checkPWM(pwm);
