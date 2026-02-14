@@ -214,7 +214,9 @@ void loop(){
       //Calcolo della nuova variazione della PWM tramite controllo PID per smorzare cambiamenti repentini della velocità (la newPwm calcolata sopra tende ad oscillare tra le iterazioni)
       int P = newPwm - pwm;   //Errore proporzionale, inteso come differenza tra il valore voluto per la PWM e il valore attuale
       int I = 0;              //Errore integrativo, visto come media degli errori "P" precedentemente inseriti nello storicoErrori
-      int D = newPwm - pwm;   //Errore derivativo, che nella situazione discreta a tempo costante (situazione che si ha a meno che non si attivi riposizionaVentola, che considero come un'eccezione ignorabile)
+      int D = newPwm - pwm;   /*Errore derivativo, la velocità di avvicinamento/allontanamento dall'obiettivo, che nella situazione discreta a tempo costante
+                                (situazione che si ha a meno che non si attivi riposizionaVentola, che considero come un'eccezione ignorabile),
+                                calcolo allo stesso modo di P  */
 
       storicoErrori[index] = P; //Inserisce il nuovo errore proporzionale nello storico
 
@@ -239,7 +241,7 @@ void loop(){
       }
 
       //Calcolo del nuovo valore per la PWM creato basandosi sugli errori
-      pwm = pwm + (4*P/10) + (3*I/10) + (3*D/10);
+      pwm = pwm + (4*P/10) + (2*I/10) + (4*D/10);
 
       //Effettua un controllo qualora i calcoli abbiano prodotto valori non validi, e restituisce un valore adeguato a seconda del caso
       pwm = checkPWM(pwm);
