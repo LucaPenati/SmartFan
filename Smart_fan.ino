@@ -32,7 +32,7 @@ byte indexPWM = 0;         //Indice che sarà usato per scrivere nell'array sopr
 bool primiAccessi = true;  //Usato per stabilire quando lo storicoPWM sta venendo riempito per la prima volta, in modo da ignorare gli zeri di dichiarazione
 
 #define MOIST_PIN A0    //Il pin di Analog Input che riceve i dati del sensore per l'umidità della pelle
-#define MIN_MOIST 570   //Valore ricavato dal sensore di umità della pelle quando è asciutto (da tarare sullo specifico sensore)
+#define MIN_MOIST 600   //Valore ricavato dal sensore di umità della pelle quando è asciutto (da tarare sullo specifico sensore)
 #define MAX_MOIST 190   //Valore ricavato dal sensore di umità della pelle quando è immerso in acqua (da tarare sullo specifico sensore)
 #define TARGET_MOIST 400  //Valore sopra il quale si considera la pelle come "non sudata"
 #define MOIST_DELAY 60000 //Tempo di un minuto che deve passare prima che il controllo della sudorazione (vedere se la pelle si sia asciugata) sia rieffettuato
@@ -321,7 +321,6 @@ short riposizionaVentola(){
   return -1;
 }
 
-
 //Funzione che controlla ogni minuto se l'umidità della pelle, restituendo un adeguato valore da sommare al valore di PWM qualora l'umidità sia ancora lontana dal suo valore TARGET e non vi si stia avvicinando.
 short controlloLoopChiuso_Moist(short umiditaPelle, unsigned long timestamp, short pwmValue){
   if(umiditaPelle < TARGET_MOIST){
@@ -350,6 +349,7 @@ short controlloLoopChiuso_Moist(short umiditaPelle, unsigned long timestamp, sho
 
         //Aggiorna il timestamp dell'ultimo controllo che ha prodotto variazione del modificatore
         precedenteControllo = timestamp;
+		  
       } else {
         precedenteUmiditaPelle = umiditaPelle;  //Viene aggiornato solo se è aumentato di almeno di 5 unità, in questo modo si evita il caso in cui incrementi gradualmente ad esempio di 4 ogni volta, ma il modificatore continui a crescere
       }
