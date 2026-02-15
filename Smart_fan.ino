@@ -35,7 +35,7 @@ bool primiAccessi = true;  //Usato per stabilire quando lo storicoPWM sta venend
 #define MIN_MOIST 570   //Valore ricavato dal sensore di umità della pelle quando è asciutto (da tarare sullo specifico sensore)
 #define MAX_MOIST 190   //Valore ricavato dal sensore di umità della pelle quando è immerso in acqua (da tarare sullo specifico sensore)
 #define TARGET_MOIST 400  //Valore sopra il quale si considera la pelle come "non sudata"
-#define MOIST_DELAY 15000 //Tempo di un minuto che deve passare prima che il controllo della sudorazione (vedere se la pelle si sia asciugata) sia rieffettuato
+#define MOIST_DELAY 60000 //Tempo di un minuto che deve passare prima che il controllo della sudorazione (vedere se la pelle si sia asciugata) sia rieffettuato
 unsigned long timestampControlloMoist = 0; //Timestamp di quando sia stato effettuato l'ultimo controllo della sudorazione
 short precedenteUmiditaPelle = TARGET_MOIST; //Memorizzazione dell'ultimo valore registrato nel controllo descritto sopra
 short modificatorePWM_Moist = 0; //Modificatore al valore della PWM legato al miglioramento o meno della sudorazione. Aggiornato a intervalli di MOIST_DELAY millisecondi
