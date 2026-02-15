@@ -221,10 +221,11 @@ void loop(){
         pwm += controlloLoopChiuso_Moist(valoreMoist, timestamp, pwm);
       }
 
+      pwm = checkPWM(pwm);
+		
       //Fa la media dei valori passati di pwm più quello appena trovato per evitare cambiamenti repentini
       pwm = smoothPWM(pwm);
 
-      //Effettua un controllo qualora i calcoli abbiano prodotto valori non validi, e restituisce un valore adeguato a seconda del caso
       pwm = checkPWM(pwm);
     }
   }
