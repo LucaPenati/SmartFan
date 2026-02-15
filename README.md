@@ -26,7 +26,7 @@ Quando alimentato, il ventilatore verifica che il suo stato sia "acceso" (stabil
 2. Raccoglie le letture dei sensori su temperatura e umidità dell'aria, e umidità della pelle del soggetto puntato.
 3. Controlla che le letture siano nei loro range accettabili, e fa in modo che non influenzino il calcolo seguente se non lo sono.
 4. Effettua una media pesata dei quattro fattori rilevati per ricavare un valore desiderato per la PWM che governa la velocità della ventola.
-5. Controlla se l'umidità della pelle si sia abbassata (meno sudore) a intervalli di un minuto. Se non è migliorata, aumenta leggermente il valore della PWM (cumulativo).
+5. Controlla se l'umidità della pelle si sia abbassata (meno sudore) a intervalli di un minuto. Se non è migliorata, aumenta leggermente il valore della PWM (cumulativo) tramite controllo PID.
 6. Il valore usato effettivamente per la velocità della ventola è una media di PWM calcolate in precedenza più l'ultima, per evitare sbalzi bruschi di velocità.
 7. Se durante la ripetizione di questo loop non rileva più la presenza di un soggetto puntato, passa al comportamento descritto di seguito.
 
