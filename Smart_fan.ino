@@ -325,7 +325,7 @@ short controlloLoopChiuso_Moist(short umiditaPelle, unsigned long timestamp, sho
         precDistacco = P;
 
         //Il modificatore viene aggiornato
-        modificatorePWM_Moist = (4*P/100) + (3*I/100) + (1*D/100);
+        modificatorePWM_Moist = (3*P/100) + (2*I/100) + (1*D/100);
         modificatorePWM_Moist = constrain(modificatorePWM_Moist, 0, (255-pwmValue));
 
         //Aggiorna il timestamp dell'ultimo controllo che ha prodotto variazione del modificatore
