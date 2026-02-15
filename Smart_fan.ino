@@ -26,16 +26,19 @@ volatile unsigned long ultimaPressione = 0; //Ultima volta che il pulsante è st
 bool acceso = false;    //Variabile che contiene lo stato acceso/spento del ventilatore in base alla pressione del pulsante
 
 short pwm = 0;   //Variabile che memorizza l'ultimo valore usato per controllare la velocità della ventola tramite PWM
-#define LUNG_STORICO 5  //Lunghezza dell'array seguente
-int storicoErrori[LUNG_STORICO] = {0, 0, 0, 0, 0};  //Memorizza gli ultimi 5 "errori", la distanza tra il valore di PWM voluto e quello effettivo
-byte index = 0;         //Indice che sarà usato per scrivere nell'array sopra
-bool primiAccessi = true;  //Usato per stabilire quando lo storicoErrori sta venendo riempito per la prima volta, in modo da ignorare gli zeri di dichiarazione (differenziandoli da eventuali 0 dovuti allo stato "a regime")
+#define LUNG_STORICO 3  //Lunghezza dell'array seguente
+short storicoPWM[LUNG_STORICO] = {0, 0, 0};  //Memorizza gli ultimi 3 valori di newPwm
+byte indexPWM = 0;         //Indice che sarà usato per scrivere nell'array sopra
+bool primiAccessi = true;  //Usato per stabilire quando lo storicoPWM sta venendo riempito per la prima volta, in modo da ignorare gli zeri di dichiarazione
 
 #define MOIST_PIN A0    //Il pin di Analog Input che riceve i dati del sensore per l'umidità della pelle
-#define MIN_MOIST 490   //Valore ricavato dal sensore di umità della pelle quando è asciutto (da tarare sullo specifico sensore)
+#define MIN_MOIST 570   //Valore ricavato dal sensore di umità della pelle quando è asciutto (da tarare sullo specifico sensore)
 #define MAX_MOIST 190   //Valore ricavato dal sensore di umità della pelle quando è immerso in acqua (da tarare sullo specifico sensore)
-//Braccio bagnato: tra 236 e 270
-//Braccio asciutto: attorno a 400-410
+#define TARGET_MOIST 400  //Valore sopra il quale si considera la pelle come "non sudata"
+#define MOIST_DELAY 60000 //Tempo di un minuto che deve passare prima che il controllo della sudorazione (vedere se la pelle si sia asciugata) sia rieffettuato
+unsigned long timestampControlloMoist = 0; //Timestamp di quando sia stato effettuato l'ultimo controllo della sudorazione
+short precedenteUmiditaPelle = TARGET_MOIST; //Memorizzazione dell'ultimo valore registrato nel controllo descritto sopra
+short modificatorePWM_Moist = 0; //Modificatore al valore della PWM legato al miglioramento o meno della sudorazione. Aggiornato a intervalli di MOIST_DELAY millisecondi
 
 #define STEPS_REVOLUTION 2048   //Numero di step che compongono una rotazione completa del motore stepper
 #define STEPS_MOVEMENT 20       //Numero di step per ogni movimento del motore (usato nella funzione "riposizionaVentola")
@@ -162,14 +165,14 @@ void loop(){
       }
 
       byte pwmModMoist = 0;   //Variabile usata per calcolare la PWM voluta per la ventola, proporzionale all'umidità della pelle
-      short valore = analogRead(MOIST_PIN);
-      if(valore <= MIN_MOIST && valore >= MAX_MOIST){   //Nel caso del sensore utilizzato, MIN_MOIST è il limite superiore, e MAX_MOIST quello inferiore
-        pwmModMoist = map(valore, MIN_MOIST, MAX_MOIST, 130, 255);  //Più "valore" è un numero basso (tendente a MAX_MOIST), più verrà convertito ad un numero tendente a 255
+      short valoreMoist = analogRead(MOIST_PIN);
+      if(valoreMoist <= MIN_MOIST && valoreMoist >= MAX_MOIST){   //Nel caso del sensore utilizzato, MIN_MOIST è il limite superiore, e MAX_MOIST quello inferiore
+        pwmModMoist = map(valoreMoist, MIN_MOIST, MAX_MOIST, 130, 255);  //Più "valore" è un numero basso (tendente a MAX_MOIST), più verrà convertito ad un numero tendente a 255
         pesoMoist = 6;
         lettureCorrette++;
       }
 
-      //Banale e semplicistica gestione dei pesi in caso di malfunzionamento dei sensori, considerata in base ai pesi stabiliti e cosa succede quando i vari sensori falliscono
+      //Semplice gestione dei pesi in caso di malfunzionamento dei sensori, considerata in base ai pesi stabiliti e cosa succede quando i vari sensori falliscono
       /*
         I pesi normalmente sono:
         - pesoDist = 4;
@@ -211,37 +214,11 @@ void loop(){
       //Effettua un controllo qualora i calcoli abbiano prodotto valori non validi, e restituisce un valore adeguato a seconda del caso
       newPwm = checkPWM(newPwm);
 
-      //Calcolo della nuova variazione della PWM tramite controllo PID per smorzare cambiamenti repentini della velocità (la newPwm calcolata sopra tende ad oscillare tra le iterazioni)
-      int P = newPwm - pwm;   //Errore proporzionale, inteso come differenza tra il valore voluto per la PWM e il valore attuale
-      int I = 0;              //Errore integrativo, visto come media degli errori "P" precedentemente inseriti nello storicoErrori
-      int D = newPwm - pwm;   /*Errore derivativo, la velocità di avvicinamento/allontanamento dall'obiettivo, che nella situazione discreta a tempo costante
-                                (situazione che si ha a meno che non si attivi riposizionaVentola, che considero come un'eccezione ignorabile),
-                                calcolo allo stesso modo di P  */
+      //Aggiunge un'eventuale modificatore qualora la sudorazione non sia migliorata con i valori stabiliti in precedenza per la PWM
+      newPwm += controlloLoopChiuso_Moist(valoreMoist, newPwm);
 
-      storicoErrori[index] = P; //Inserisce il nuovo errore proporzionale nello storico
-
-      byte conta = LUNG_STORICO;
-      if(primiAccessi){      //Se l'array dello storicoErrori non è ancora stato riempito, il numero di elementi da calcolare è pari a index + 1;
-        conta = index + 1;
-      }
-
-      if(conta > 0) {
-        for (byte i = 0; i < conta; i++){
-          I = I + storicoErrori[i];
-        }
-        I = I / conta;
-      }
-
-      //Aggiornamento della prossima cella da scrivere nello storicoErrori all'iterazione successiva del main loop
-      if(index >= (LUNG_STORICO - 1)){
-        index = 0;
-        primiAccessi = false;
-      } else {
-        index++;
-      }
-
-      //Calcolo del nuovo valore per la PWM creato basandosi sugli errori
-      pwm = pwm + (4*P/10) + (3*I/10) + (3*D/10);
+      //Assegna un nuovo valore alla variabile globale pwm, smorzando cambiamenti repentini facendo la media dei valori passati di newPwm
+      smoothPWM(newPwm);
 
       //Effettua un controllo qualora i calcoli abbiano prodotto valori non validi, e restituisce un valore adeguato a seconda del caso
       pwm = checkPWM(pwm);
@@ -269,6 +246,7 @@ void gestioneBottone(){
   ultimaPressione = timestamp;
 }
 
+
 //Controlla che un valore ottenuto per la PWM sia valido (tra 0 e 255).
 //Restituisce lo stesso valore ricevuto in ingresso se è nel range accettabile, altrimenti 0 se il valore era negativo, oppure 255 se era oltre tale soglia.
 short checkPWM(short valorePWM){
@@ -292,6 +270,19 @@ short impulso(){
 	digitalWrite(TRIG_PIN, LOW);   //Riporta il trigger pin a LOW
   
   return pulseIn(ECHO_PIN, HIGH);
+}
+
+
+//Funzione che restituisce la media degli elementi contenuti in un array di short
+short mediaArray(short array[], short length){
+  int media = 0;
+  if(length > 0) {
+    for (byte i = 0; i < length; i++){
+      media = media + storicoPWM[i];
+    }
+    media = media / length;
+  }
+  return media;
 }
 
 
@@ -322,4 +313,54 @@ short riposizionaVentola(){
   myStepper.step(i * STEPS_MOVEMENT * direzione);
   delay(2000);
   return -1;
+}
+
+//Funzione che controlla ogni minuto se l'umidità della pelle, restituendo un adeguato valore da sommare al valore di PWM qualora l'umidità sia ancora lontana dal suo valore TARGET e non vi si stia avvicinando.
+//Si presume che una volta smesso di sudare, non ci sia bisogno di mantenere questo modificatore aggiuntivo alla PWM, considerato che l'umidità della pelle è già considerata nei calcoli per la PWM, quindi
+//questo controllo è solo qualora risulti insufficiente il normale valore.
+short controlloLoopChiuso_Moist(short umiditaPelle, short pwmValue){
+  if(umiditaPelle < TARGET_MOIST){
+    unsigned long timestamp = millis();
+
+    if((timestamp - timestampControlloMoist) > MOIST_DELAY){
+      if(!((umiditaPelle - precedenteUmiditaPelle) >= 10)){ //Se il valore di umidità della pelle non si è asciugato abbastanza da aumentare di almeno 10 unità, aumenta il modificatore per la PWM
+        //Il modificatore viene aggiornato aumentandone il valore di una frazione della differenza tra il valore massimo per la PWM e il valore calcolato
+        modificatorePWM_Moist += map(umiditaPelle, TARGET_MOIST, MAX_MOIST, 0, (255 - pwmValue)) / 5;
+      } else {
+        precedenteUmiditaPelle = umiditaPelle;  //Viene aggiornato solo se è aumentato di almeno di 10 unità, in questo modo si evita il caso in cui incrementi gradualmente ad esempio di 9 ogni volta, ma il modificatore continui a crescere
+      }
+      timestampControlloMoist = timestamp;
+    }
+
+    modificatorePWM_Moist = checkPWM(modificatorePWM_Moist);
+    return modificatorePWM_Moist;
+
+  } else {
+    modificatorePWM_Moist = 0;
+  }
+
+  return modificatorePWM_Moist;
+}
+
+
+//Funzione che smorza i cambiamenti repentini del valore di PWM facendo una media dei valori registrati in precedenza
+//Prende in ingresso un nuovo valore di PWM che va ad aggiornare la media.
+void smoothPWM(short newPWM){
+  storicoPWM[indexPWM] = newPWM; //Inserisce il nuovo valore nello storico
+
+  byte conta = LUNG_STORICO;
+  if(primiAccessi){      //Se l'array dello storicoPWM non è ancora stato riempito, il numero di elementi da calcolare è pari a indexPWM + 1;
+    conta = indexPWM + 1;
+  }
+
+  //Calcolo della pwm come media dei valori passati + quello nuovo
+  pwm = mediaArray(storicoPWM, conta);
+
+  //Aggiornamento della prossima cella da scrivere nello storicoPWM all'iterazione successiva del main loop
+  if(indexPWM >= (LUNG_STORICO - 1)){
+    indexPWM = 0;
+    primiAccessi = false;
+  } else {
+    indexPWM++;
+  }
 }
