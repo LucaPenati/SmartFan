@@ -35,10 +35,12 @@ bool primiAccessi = true;  //Usato per stabilire quando lo storicoPWM sta venend
 #define MIN_MOIST 570   //Valore ricavato dal sensore di umità della pelle quando è asciutto (da tarare sullo specifico sensore)
 #define MAX_MOIST 190   //Valore ricavato dal sensore di umità della pelle quando è immerso in acqua (da tarare sullo specifico sensore)
 #define TARGET_MOIST 400  //Valore sopra il quale si considera la pelle come "non sudata"
-#define MOIST_DELAY 60000 //Tempo di un minuto che deve passare prima che il controllo della sudorazione (vedere se la pelle si sia asciugata) sia rieffettuato
+#define MOIST_DELAY 15000 //Tempo di un minuto che deve passare prima che il controllo della sudorazione (vedere se la pelle si sia asciugata) sia rieffettuato
 unsigned long timestampControlloMoist = 0; //Timestamp di quando sia stato effettuato l'ultimo controllo della sudorazione
 short precedenteUmiditaPelle = TARGET_MOIST; //Memorizzazione dell'ultimo valore registrato nel controllo descritto sopra
 short modificatorePWM_Moist = 0; //Modificatore al valore della PWM legato al miglioramento o meno della sudorazione. Aggiornato a intervalli di MOIST_DELAY millisecondi
+int I = 0;  //Elemento integrativo del controllo PID
+short precDistacco = 0;  //Serve a calcolare l'elemento derivativo del controllo PID
 
 #define STEPS_REVOLUTION 2048   //Numero di step che compongono una rotazione completa del motore stepper
 #define STEPS_MOVEMENT 20       //Numero di step per ogni movimento del motore (usato nella funzione "riposizionaVentola")
@@ -166,6 +168,7 @@ void loop(){
 
       byte pwmModMoist = 0;   //Variabile usata per calcolare la PWM voluta per la ventola, proporzionale all'umidità della pelle
       short valoreMoist = analogRead(MOIST_PIN);
+      unsigned long timestamp = millis(); //Prendo il timestamp della misurazione, servirà per il controllo di Loop Chiuso
       if(valoreMoist <= MIN_MOIST && valoreMoist >= MAX_MOIST){   //Nel caso del sensore utilizzato, MIN_MOIST è il limite superiore, e MAX_MOIST quello inferiore
         pwmModMoist = map(valoreMoist, MIN_MOIST, MAX_MOIST, 130, 255);  //Più "valore" è un numero basso (tendente a MAX_MOIST), più verrà convertito ad un numero tendente a 255
         pesoMoist = 6;
@@ -215,7 +218,9 @@ void loop(){
       newPwm = checkPWM(newPwm);
 
       //Aggiunge un'eventuale modificatore qualora la sudorazione non sia migliorata con i valori stabiliti in precedenza per la PWM
-      newPwm += controlloLoopChiuso_Moist(valoreMoist, newPwm);
+      if(valoreMoist <= MIN_MOIST && valoreMoist >= MAX_MOIST){
+        newPwm += controlloLoopChiuso_Moist(valoreMoist, timestamp, newPwm);
+      }
 
       //Assegna un nuovo valore alla variabile globale pwm, smorzando cambiamenti repentini facendo la media dei valori passati di newPwm
       smoothPWM(newPwm);
@@ -278,7 +283,7 @@ short mediaArray(short array[], short length){
   int media = 0;
   if(length > 0) {
     for (byte i = 0; i < length; i++){
-      media = media + storicoPWM[i];
+      media += array[i];
     }
     media = media / length;
   }
@@ -316,38 +321,35 @@ short riposizionaVentola(){
 }
 
 //Funzione che controlla ogni minuto se l'umidità della pelle, restituendo un adeguato valore da sommare al valore di PWM qualora l'umidità sia ancora lontana dal suo valore TARGET e non vi si stia avvicinando.
-//Si presume che una volta smesso di sudare, non ci sia bisogno di mantenere questo modificatore aggiuntivo alla PWM, considerato che l'umidità della pelle è già considerata nei calcoli per la PWM, quindi
-//questo controllo è solo qualora risulti insufficiente il normale valore.
-short controlloLoopChiuso_Moist(short umiditaPelle, short pwmValue){
+short controlloLoopChiuso_Moist(short umiditaPelle, unsigned long timestamp, short pwmValue){
   if(umiditaPelle < TARGET_MOIST){
-    unsigned long timestamp = millis();
-
     if((timestamp - timestampControlloMoist) > MOIST_DELAY){
-      if(!((umiditaPelle - precedenteUmiditaPelle) >= 10)){ //Se il valore di umidità della pelle non si è asciugato abbastanza da aumentare di almeno 10 unità, aumenta il modificatore per la PWM
+      if(!((umiditaPelle - precedenteUmiditaPelle) >= 5)){ //Se il valore di umidità della pelle non si è asciugato abbastanza da aumentare di almeno 10 unità, aumenta il modificatore per la PWM
+        short P = TARGET_MOIST - umiditaPelle;
+        short D = 0;
+
+        //Calcolo di I (che è variabile globale visto che memorizza valori consecutivi)
+        I += P * ((timestamp - timestampControlloMoist) / MOIST_DELAY);
+        
+        //D è calcolato come differenza tra il distacco attuale e il distacco precedente, diviso per il tempo trascorso tra le due misurazioni, dato che rappresenta la velocità di avvicinamento al target
+        D = (P - precDistacco) / ((timestamp - timestampControlloMoist) / MOIST_DELAY);
+        precDistacco = P;
+
         //Il modificatore viene aggiornato aumentandone il valore di una frazione della differenza tra il valore massimo per la PWM e il valore calcolato (minimo 1)
-		byte add = 1;
-		  
-		if((255 - pwmValue) >= 2){
-		  add = map(umiditaPelle, TARGET_MOIST, MAX_MOIST, 1, (255 - pwmValue)) / 5;
-		}
-		  
-        if(add > 1){
+        short add = (2*P/100) + (3*I/1000) + (1*D/10);
+
+        if(add >= 1 && add <= (255 - pwmValue)){
           modificatorePWM_Moist += add;
+        } else if (add > (255 - pwmValue)){
+          modificatorePWM_Moist += (255 - pwmValue);
         } else {
           modificatorePWM_Moist++;
         }
-		  
       } else {
-        precedenteUmiditaPelle = umiditaPelle;  //Viene aggiornato solo se è aumentato di almeno di 10 unità, in questo modo si evita il caso in cui incrementi gradualmente ad esempio di 9 ogni volta, ma il modificatore continui a crescere
+        precedenteUmiditaPelle = umiditaPelle;  //Viene aggiornato solo se è aumentato di almeno di 5 unità, in questo modo si evita il caso in cui incrementi gradualmente ad esempio di 4 ogni volta, ma il modificatore continui a crescere
       }
       timestampControlloMoist = timestamp;
     }
-
-    modificatorePWM_Moist = checkPWM(modificatorePWM_Moist);
-    return modificatorePWM_Moist;
-
-  } else {
-    modificatorePWM_Moist = 0;
   }
 
   return modificatorePWM_Moist;
