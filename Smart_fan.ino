@@ -38,7 +38,7 @@ bool primiAccessi = true;  //Usato per stabilire quando lo storicoPWM sta venend
 #define MOIST_DELAY 60000 //Tempo di un minuto che deve passare prima che il controllo della sudorazione (vedere se la pelle si sia asciugata) sia rieffettuato
 unsigned long timestampControlloMoist = 0; //Timestamp di quando sia stato effettuato l'ultimo controllo della sudorazione
 unsigned long precedenteControllo = 0;     //Timestamp dell'ultimo controllo che ha aggiornato il modificatore alla PWM del controllo PID
-short precedenteUmiditaPelle = TARGET_MOIST; //Memorizzazione dell'ultimo valore registrato nel controllo descritto sopra
+short precedenteUmiditaPelle = 0; //Memorizzazione dell'ultimo valore registrato nel controllo descritto sopra
 short modificatorePWM_Moist = 0; //Modificatore al valore della PWM legato al miglioramento o meno della sudorazione. Aggiornato a intervalli di MOIST_DELAY millisecondi
 int I = 0;  //Elemento integrativo del controllo PID
 short precDistacco = 0;  //Serve a calcolare l'elemento derivativo del controllo PID
