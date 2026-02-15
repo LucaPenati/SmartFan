@@ -325,12 +325,18 @@ short controlloLoopChiuso_Moist(short umiditaPelle, short pwmValue){
     if((timestamp - timestampControlloMoist) > MOIST_DELAY){
       if(!((umiditaPelle - precedenteUmiditaPelle) >= 10)){ //Se il valore di umidità della pelle non si è asciugato abbastanza da aumentare di almeno 10 unità, aumenta il modificatore per la PWM
         //Il modificatore viene aggiornato aumentandone il valore di una frazione della differenza tra il valore massimo per la PWM e il valore calcolato (minimo 1)
-        byte add = map(umiditaPelle, TARGET_MOIST, MAX_MOIST, 1, (255 - pwmValue)) / 5;
+		byte add = 1;
+		  
+		if((255 - pwmValue) >= 2){
+		  add = map(umiditaPelle, TARGET_MOIST, MAX_MOIST, 1, (255 - pwmValue)) / 5;
+		}
+		  
         if(add > 1){
           modificatorePWM_Moist += add;
         } else {
           modificatorePWM_Moist++;
         }
+		  
       } else {
         precedenteUmiditaPelle = umiditaPelle;  //Viene aggiornato solo se è aumentato di almeno di 10 unità, in questo modo si evita il caso in cui incrementi gradualmente ad esempio di 9 ogni volta, ma il modificatore continui a crescere
       }
