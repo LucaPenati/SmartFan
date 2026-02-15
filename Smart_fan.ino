@@ -37,6 +37,7 @@ bool primiAccessi = true;  //Usato per stabilire quando lo storicoPWM sta venend
 #define TARGET_MOIST 400  //Valore sopra il quale si considera la pelle come "non sudata"
 #define MOIST_DELAY 60000 //Tempo di un minuto che deve passare prima che il controllo della sudorazione (vedere se la pelle si sia asciugata) sia rieffettuato
 unsigned long timestampControlloMoist = 0; //Timestamp di quando sia stato effettuato l'ultimo controllo della sudorazione
+unsigned long precedenteControllo = 0;     //Timestamp dell'ultimo controllo che ha aggiornato il modificatore alla PWM del controllo PID
 short precedenteUmiditaPelle = TARGET_MOIST; //Memorizzazione dell'ultimo valore registrato nel controllo descritto sopra
 short modificatorePWM_Moist = 0; //Modificatore al valore della PWM legato al miglioramento o meno della sudorazione. Aggiornato a intervalli di MOIST_DELAY millisecondi
 int I = 0;  //Elemento integrativo del controllo PID
@@ -320,6 +321,7 @@ short riposizionaVentola(){
   return -1;
 }
 
+
 //Funzione che controlla ogni minuto se l'umidità della pelle, restituendo un adeguato valore da sommare al valore di PWM qualora l'umidità sia ancora lontana dal suo valore TARGET e non vi si stia avvicinando.
 short controlloLoopChiuso_Moist(short umiditaPelle, unsigned long timestamp, short pwmValue){
   if(umiditaPelle < TARGET_MOIST){
@@ -329,10 +331,10 @@ short controlloLoopChiuso_Moist(short umiditaPelle, unsigned long timestamp, sho
         short D = 0;
 
         //Calcolo di I (che è variabile globale visto che memorizza valori consecutivi)
-        I += P * ((timestamp - timestampControlloMoist) / MOIST_DELAY);
+        I += P * ((timestamp - precedenteControllo) / MOIST_DELAY);
         
         //D è calcolato come differenza tra il distacco attuale e il distacco precedente, diviso per il tempo trascorso tra le due misurazioni, dato che rappresenta la velocità di avvicinamento al target
-        D = (P - precDistacco) / ((timestamp - timestampControlloMoist) / MOIST_DELAY);
+        D = (P - precDistacco) / ((timestamp - precedenteControllo) / MOIST_DELAY);
         precDistacco = P;
 
         //Il modificatore viene aggiornato aumentandone il valore di una frazione della differenza tra il valore massimo per la PWM e il valore calcolato (minimo 1)
@@ -345,13 +347,15 @@ short controlloLoopChiuso_Moist(short umiditaPelle, unsigned long timestamp, sho
         } else {
           modificatorePWM_Moist++;
         }
+
+        //Aggiorna il timestamp dell'ultimo controllo che ha prodotto variazione del modificatore
+        precedenteControllo = timestamp;
       } else {
         precedenteUmiditaPelle = umiditaPelle;  //Viene aggiornato solo se è aumentato di almeno di 5 unità, in questo modo si evita il caso in cui incrementi gradualmente ad esempio di 4 ogni volta, ma il modificatore continui a crescere
       }
       timestampControlloMoist = timestamp;
     }
   }
-
   return modificatorePWM_Moist;
 }
 
