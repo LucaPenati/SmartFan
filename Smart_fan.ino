@@ -219,9 +219,8 @@ void loop(){
       //Aggiunge un'eventuale modificatore qualora la sudorazione non sia migliorata con i valori stabiliti in precedenza per la PWM
       if(valoreMoist <= MIN_MOIST && valoreMoist >= MAX_MOIST){
         pwm += controlloLoopChiuso_Moist(valoreMoist, timestamp, pwm);
+		pwm = checkPWM(pwm);
       }
-
-      pwm = checkPWM(pwm);
 		
       //Fa la media dei valori passati di pwm più quello appena trovato per evitare cambiamenti repentini
       pwm = smoothPWM(pwm);
