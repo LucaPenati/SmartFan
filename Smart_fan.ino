@@ -214,18 +214,18 @@ void loop(){
               (pesoMoist*pwmModMoist)/4) / lettureCorrette;
       }
       //Effettua un controllo qualora i calcoli abbiano prodotto valori non validi, e restituisce un valore adeguato a seconda del caso
-      pwm = checkPWM(pwm);
+      pwm = constrain(pwm, 0, 255);
 
       //Aggiunge un'eventuale modificatore qualora la sudorazione non sia migliorata con i valori stabiliti in precedenza per la PWM
       if(valoreMoist <= MIN_MOIST && valoreMoist >= MAX_MOIST){
         pwm += controlloLoopChiuso_Moist(valoreMoist, timestamp, pwm);
-		pwm = checkPWM(pwm);
+		pwm = constrain(pwm, 0, 255);
       }
 		
       //Fa la media dei valori passati di pwm più quello appena trovato per evitare cambiamenti repentini
       pwm = smoothPWM(pwm);
 
-      pwm = checkPWM(pwm);
+      pwm = constrain(pwm, 0, 255);
     }
   }
 
@@ -248,19 +248,6 @@ void gestioneBottone(){
     }
   }
   ultimaPressione = timestamp;
-}
-
-
-//Controlla che un valore ottenuto per la PWM sia valido (tra 0 e 255).
-//Restituisce lo stesso valore ricevuto in ingresso se è nel range accettabile, altrimenti 0 se il valore era negativo, oppure 255 se era oltre tale soglia.
-short checkPWM(short valorePWM){
-  if(valorePWM > 255){
-    return 255;
-  } else if (valorePWM < 0){
-    return 0;
-  } else {
-    return valorePWM;
-  }
 }
 
 
@@ -337,14 +324,8 @@ short controlloLoopChiuso_Moist(short umiditaPelle, unsigned long timestamp, sho
 
         //Il modificatore viene aggiornato aumentandone il valore di una frazione della differenza tra il valore massimo per la PWM e il valore calcolato (minimo 1)
         short add = (2*P/100) + (3*I/1000) + (1*D/10);
-
-        if(add >= 1 && add <= (255 - pwmValue)){
-          modificatorePWM_Moist += add;
-        } else if (add > (255 - pwmValue)){
-          modificatorePWM_Moist += (255 - pwmValue);
-        } else {
-          modificatorePWM_Moist++;
-        }
+		modificatorePWM_Moist += constrain(add, 1, (255 - pwmValue));
+        modificatorePWM_Moist = constrain(modificatorePWM_Moist, 0, 255);
 
         //Aggiorna il timestamp dell'ultimo controllo che ha prodotto variazione del modificatore
         precedenteControllo = timestamp;
