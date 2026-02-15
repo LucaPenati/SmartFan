@@ -25,9 +25,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 volatile unsigned long ultimaPressione = 0; //Ultima volta che il pulsante è stato premuto, da usare nella funzione ISR chiamata dall'interrupt alla pressione del pulsante
 bool acceso = false;    //Variabile che contiene lo stato acceso/spento del ventilatore in base alla pressione del pulsante
 
-short pwm = 0;   //Variabile che memorizza l'ultimo valore usato per controllare la velocità della ventola tramite PWM
 #define LUNG_STORICO 3  //Lunghezza dell'array seguente
-short storicoPWM[LUNG_STORICO] = {0, 0, 0};  //Memorizza gli ultimi 3 valori di newPwm
+short storicoPWM[LUNG_STORICO] = {0, 0, 0};  //Memorizza gli ultimi 3 valori calcolati per la PWM
 byte indexPWM = 0;         //Indice che sarà usato per scrivere nell'array sopra
 bool primiAccessi = true;  //Usato per stabilire quando lo storicoPWM sta venendo riempito per la prima volta, in modo da ignorare gli zeri di dichiarazione
 
@@ -86,6 +85,8 @@ void setup(){
 
 //Main loop
 void loop(){
+  short pwm = 0;    //Variabile che conterrà il valore per guidare la velocità della ventola tramite PWM
+
   //Le funzioni del ventilatore saranno eseguite solo se lo stato del sistema è "acceso", e la temperatura è stata letta correttamente
   //ed è superiore alla soglia minima. Se il sensore non è in grado di leggere la temperatura, viene considerato solo se l'utente
   //abbia acceso o meno il ventilatore.
@@ -107,17 +108,16 @@ void loop(){
     //Se la temperatura è caduta oltre la soglia di arresto, il ventilatore si ferma (pur rimanendo tecnicamente "acceso" tramite variabile associata alla pressione del pulsante)
     if(tempUmiFail == 0 && temperatura <= (MIN_TEMP - FINESTRA_TEMP)){
       accesoPerTemperatura = false;
-      pwm = 0;
     }
 
     if(accesoPerTemperatura){
-      //Pesi per il calcolo tramite media pesata del valore target per il controllo della velocità della ventola via PWM
+      //Pesi per il calcolo tramite media pesata del valore per il controllo della velocità della ventola via PWM
       byte pesoDist = 0;
       byte pesoTemp = 0;
       byte pesoUmi = 0;
       byte pesoMoist = 0;
     
-      byte lettureCorrette = 0; //Conta quanti sensori hanno effettuato una lettura corretta, servirà a fare la media pesata per il valore PWM target
+      byte lettureCorrette = 0; //Conta quanti sensori hanno effettuato una lettura corretta, servirà a fare la media pesata per il valore PWM
       byte pwmModTemp = 0;    //Variabile usata per calcolare la PWM voluta per la ventola, proporzionale alla temperatura
       byte pwmModUmi = 0;     //Variabile usata per calcolare la PWM voluta per la ventola, proporzionale all'umidità dell'aria
 
@@ -207,24 +207,22 @@ void loop(){
         }
       }
 
-      short newPwm = 0;    //Variabile che conterrà il valore target per guidare la velocità della ventola tramite PWM
-
       if(lettureCorrette > 0){  //Effettua la media ponderata dei risultati dei vari sensori per calcolare il valore adeguato per la PWM voluta
-        newPwm = ((pesoDist*pwmModDist)/4 +
-                (pesoTemp*pwmModTemp)/4 +
-                (pesoUmi*pwmModUmi)/4 +
-                (pesoMoist*pwmModMoist)/4) / lettureCorrette;
+        pwm = ((pesoDist*pwmModDist)/4 +
+              (pesoTemp*pwmModTemp)/4 +
+              (pesoUmi*pwmModUmi)/4 +
+              (pesoMoist*pwmModMoist)/4) / lettureCorrette;
       }
       //Effettua un controllo qualora i calcoli abbiano prodotto valori non validi, e restituisce un valore adeguato a seconda del caso
-      newPwm = checkPWM(newPwm);
+      pwm = checkPWM(pwm);
 
       //Aggiunge un'eventuale modificatore qualora la sudorazione non sia migliorata con i valori stabiliti in precedenza per la PWM
       if(valoreMoist <= MIN_MOIST && valoreMoist >= MAX_MOIST){
-        newPwm += controlloLoopChiuso_Moist(valoreMoist, timestamp, newPwm);
+        pwm += controlloLoopChiuso_Moist(valoreMoist, timestamp, pwm);
       }
 
-      //Assegna un nuovo valore alla variabile globale pwm, smorzando cambiamenti repentini facendo la media dei valori passati di newPwm
-      smoothPWM(newPwm);
+      //Fa la media dei valori passati di pwm più quello appena trovato per evitare cambiamenti repentini
+      pwm = smoothPWM(pwm);
 
       //Effettua un controllo qualora i calcoli abbiano prodotto valori non validi, e restituisce un valore adeguato a seconda del caso
       pwm = checkPWM(pwm);
@@ -321,6 +319,7 @@ short riposizionaVentola(){
   return -1;
 }
 
+
 //Funzione che controlla ogni minuto se l'umidità della pelle, restituendo un adeguato valore da sommare al valore di PWM qualora l'umidità sia ancora lontana dal suo valore TARGET e non vi si stia avvicinando.
 short controlloLoopChiuso_Moist(short umiditaPelle, unsigned long timestamp, short pwmValue){
   if(umiditaPelle < TARGET_MOIST){
@@ -349,7 +348,6 @@ short controlloLoopChiuso_Moist(short umiditaPelle, unsigned long timestamp, sho
 
         //Aggiorna il timestamp dell'ultimo controllo che ha prodotto variazione del modificatore
         precedenteControllo = timestamp;
-		  
       } else {
         precedenteUmiditaPelle = umiditaPelle;  //Viene aggiornato solo se è aumentato di almeno di 5 unità, in questo modo si evita il caso in cui incrementi gradualmente ad esempio di 4 ogni volta, ma il modificatore continui a crescere
       }
@@ -362,16 +360,13 @@ short controlloLoopChiuso_Moist(short umiditaPelle, unsigned long timestamp, sho
 
 //Funzione che smorza i cambiamenti repentini del valore di PWM facendo una media dei valori registrati in precedenza
 //Prende in ingresso un nuovo valore di PWM che va ad aggiornare la media.
-void smoothPWM(short newPWM){
+short smoothPWM(short newPWM){
   storicoPWM[indexPWM] = newPWM; //Inserisce il nuovo valore nello storico
 
   byte conta = LUNG_STORICO;
   if(primiAccessi){      //Se l'array dello storicoPWM non è ancora stato riempito, il numero di elementi da calcolare è pari a indexPWM + 1;
     conta = indexPWM + 1;
   }
-
-  //Calcolo della pwm come media dei valori passati + quello nuovo
-  pwm = mediaArray(storicoPWM, conta);
 
   //Aggiornamento della prossima cella da scrivere nello storicoPWM all'iterazione successiva del main loop
   if(indexPWM >= (LUNG_STORICO - 1)){
@@ -380,4 +375,7 @@ void smoothPWM(short newPWM){
   } else {
     indexPWM++;
   }
+
+  //Calcolo della pwm come media dei valori passati + quello nuovo
+  return mediaArray(storicoPWM, conta);
 }
