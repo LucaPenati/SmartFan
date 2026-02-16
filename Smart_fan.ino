@@ -23,7 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #define BUTTON_PIN 2    //GPIO collegato al pulsante di accensione/spegnimento del ventilatore 
 #define DEBOUNCE_DELAY 50   //Intervallo di attesa per il debounce del pulsante
 volatile unsigned long ultimaPressione = 0; //Ultima volta che il pulsante è stato premuto, da usare nella funzione ISR chiamata dall'interrupt alla pressione del pulsante
-bool acceso = false;    //Variabile che contiene lo stato acceso/spento del ventilatore in base alla pressione del pulsante
+volatile bool acceso = false;    //Variabile che contiene lo stato acceso/spento del ventilatore in base alla pressione del pulsante
 
 #define LUNG_STORICO 3  //Lunghezza dell'array seguente
 short storicoPWM[LUNG_STORICO] = {0, 0, 0};  //Memorizza gli ultimi 3 valori calcolati per la PWM
